@@ -1,0 +1,80 @@
+name: Set up GPU build dependencies
+description: >
+  Prepares Vulkan + OpenCL toolchains for cross-compiling llama.cpp's GPU
+  backends, and exports ORACLE_GPU / OpenCL paths for the Gradle native build.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Vulkan + OpenCL build dependencies
+      shell: bash
+      run: |
+        set -euxo pipefail
+
+        NDK="$ANDROID_HOME/ndk/26.3.11579264"
+        test -d "$NDK"
+
+        # glslc (from the NDK) compiles Vulkan shaders during the build.
+        GLSLC_DIR="$NDK/shader-tools/linux-x86_64"
+        test -x "$GLSLC_DIR/glslc"
+        echo "$GLSLC_DIR" >> "$GITHUB_PATH"
+
+        # Host Vulkan headers + glslang for building ggml's vulkan-shaders-gen
+        # tool (it runs on the runner, not the phone).
+        sudo apt-get update
+        sudo apt-get install -y libvulkan-dev glslang-tools
+
+        # Cross-build the OpenCL ICD loader for arm64 Android so ggml-opencl has
+        # a libOpenCL.so to link against (the real ICD is provided by the device
+        # at runtime).
+        OCL="$RUNNER_TEMP/opencl"
+        mkdir -p "$OCL" && cd "$OCL"
+        git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers
+        git clone --depth 1 https://github.com/KhronosGroup/OpenCL-ICD-Loader
+        cmake -S OpenCL-Headers -B build-headers \
+          -DCMAKE_INSTALL_PREFIX="$OCL/install"
+        cmake --build build-headers --target install
+        # The Android toolchain restricts find_package to the NDK sysroot, so
+        # point the loader directly at the headers config and allow searching
+        # outside the root (CMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH).
+        OCL_HEADERS_DIR="$(dirname "$(find "$OCL/install" -name 'OpenCLHeadersConfig.cmake' | head -n1)")"
+        test -n "$OCL_HEADERS_DIR"
+        cmake -S OpenCL-ICD-Loader -B build-icd \
+          -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+          -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
+          -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
+          -DCMAKE_PREFIX_PATH="$OCL/install" \
+          -DOpenCLHeaders_DIR="$OCL_HEADERS_DIR" \
+          -DCMAKE_INSTALL_PREFIX="$OCL/install" \
+          -DCMAKE_BUILD_TYPE=Release
+        cmake --build build-icd --target install
+
+        # SPIRV-Headers — required by ggml-vulkan's shader pipeline. Header-only;
+        # install its CMake config into the same prefix so find_package resolves it.
+        git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers
+        cmake -S SPIRV-Headers -B build-spirv \
+          -DCMAKE_INSTALL_PREFIX="$OCL/install"
+        cmake --build build-spirv --target install
+
+        # Vulkan-Headers — the NDK sysroot ships the C header (vulkan.h) and
+        # libvulkan.so but NOT the C++ bindings (vulkan.hpp) that ggml-vulkan
+        # includes. Install the full headers and point Vulkan_INCLUDE_DIR at them,
+        # while linking the NDK's arm64 libvulkan.so.
+        git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers
+        cmake -S Vulkan-Headers -B build-vkheaders \
+          -DCMAKE_INSTALL_PREFIX="$OCL/install"
+        cmake --build build-vkheaders --target install
+        # Link against the android-26 libvulkan stub (the app's minSdk). ggml-vulkan's
+        # only >1.0 entry point (vkGetPhysicalDeviceFeatures2) is patched to load via
+        # the dynamic dispatcher, so the linked symbols (vkGetInstanceProcAddr,
+        # vkCmdCopyBuffer) are all Vulkan 1.0 and present from API 24 up.
+        VK_LIB="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/26/libvulkan.so"
+        test -f "$VK_LIB"
+
+        # Hand the paths to the Gradle externalNativeBuild (see llama/build.gradle.kts).
+        echo "ORACLE_GPU=1" >> "$GITHUB_ENV"
+        echo "ORACLE_GPU_PREFIX=$OCL/install" >> "$GITHUB_ENV"
+        echo "ORACLE_OPENCL_INCLUDE=$OCL/install/include" >> "$GITHUB_ENV"
+        echo "ORACLE_OPENCL_LIB=$OCL/install/lib/libOpenCL.so" >> "$GITHUB_ENV"
+        echo "ORACLE_VULKAN_INCLUDE=$OCL/install/include" >> "$GITHUB_ENV"
+        echo "ORACLE_VULKAN_LIB=$VK_LIB" >> "$GITHUB_ENV"

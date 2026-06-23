@@ -1,0 +1,143 @@
+name: Firebase Test Lab (device matrix)
+
+# Runs the real arm64 debug APK on a matrix of devices in Firebase Test Lab and
+# does a Robo crawl (no test code needed): launches the app, accepts the terms,
+# walks Settings / chat / the GPU toggle, and reports a crash + screenshots +
+# logcat per device. This is the "many devices without owning them" smoke test —
+# it validates launch + native-lib load + the GPU graceful-fallback path across
+# different chipsets / GPUs / Android versions. Real on-device *inference* still
+# needs a human tester (model files are too large to fetch inside a Robo run).
+#
+# Manual-only on purpose: Test Lab's free Spark quota is a handful of runs/day,
+# so we don't burn it on every push.
+#
+# ── One-time setup (all doable from a phone browser) ─────────────────────────
+#  1. In the Firebase / Google Cloud console, open your existing project.
+#  2. Enable these APIs: "Cloud Testing API" and "Cloud Tool Results API".
+#  3. Create a service account → grant role "Firebase Test Lab Admin"
+#     (add "Service Usage Consumer" too if prompted). Create a JSON key.
+#  4. In GitHub → repo Settings → Secrets and variables → Actions, add secret
+#     GCP_SA_KEY with the full JSON key contents.
+#  (GOOGLE_SERVICES_JSON_BASE64 — already set — supplies the project id.)
+#
+# Then: Actions tab → "Firebase Test Lab (device matrix)" → Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      devices:
+        description: >-
+          Space-separated device specs, e.g.
+          "model=MediumPhone.arm,version=34 model=redfin,version=30".
+          Leave blank to use the defaults below.
+        required: false
+        default: ""
+      timeout:
+        description: "Per-device Robo crawl time budget (e.g. 180s, 5m)."
+        required: false
+        default: "180s"
+
+jobs:
+  testlab:
+    name: Robo crawl on device matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK and CMake
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" \
+                     "ndk;26.3.11579264" "cmake;3.22.1"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Require Firebase service-account key
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          if [ -z "$GCP_SA_KEY" ]; then
+            echo "::error::Secret GCP_SA_KEY is not set. See the setup notes at the" \
+                 "top of .github/workflows/testlab.yml (create a Firebase Test Lab" \
+                 "Admin service account and add its JSON key as GCP_SA_KEY)."
+            exit 1
+          fi
+
+      - name: Write google-services.json
+        env:
+          GS_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -z "$GS_JSON_BASE64" ]; then
+            echo "::error::Secret GOOGLE_SERVICES_JSON_BASE64 is not set; it supplies the project id."
+            exit 1
+          fi
+          echo "$GS_JSON_BASE64" | base64 -d > app/google-services.json
+          PROJECT_ID=$(python3 -c "import json;print(json.load(open('app/google-services.json'))['project_info']['project_id'])")
+          echo "FIREBASE_PROJECT_ID=$PROJECT_ID" >> "$GITHUB_ENV"
+          echo "Using Firebase project: $PROJECT_ID"
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Set up GPU build dependencies (Vulkan + OpenCL)
+        uses: ./.github/actions/gpu-deps
+
+      - name: Assemble debug APK (compiles llama.cpp for arm64)
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.FIREBASE_PROJECT_ID }}
+
+      - name: List available Test Lab devices (reference)
+        continue-on-error: true
+        run: |
+          echo "Physical devices:"
+          gcloud firebase test android models list --filter="form=PHYSICAL" 2>/dev/null || true
+          echo "Virtual devices:"
+          gcloud firebase test android models list --filter="form=VIRTUAL" 2>/dev/null || true
+
+      - name: Run Robo test on the device matrix
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          # Build --device flags from the input, or fall back to defaults.
+          # Defaults use Test Lab's ARM virtual devices (they actually run the
+          # arm64 native library) across a spread of Android versions. If any
+          # model id is rejected, copy a valid one from the "List available
+          # devices" step above into the workflow's "devices" input and re-run.
+          DEVICES_INPUT="${{ inputs.devices }}"
+          if [ -z "$DEVICES_INPUT" ]; then
+            DEVICES_INPUT="model=MediumPhone.arm,version=34 model=MediumPhone.arm,version=30 model=MediumPhone.arm,version=26"
+          fi
+          DEVICE_FLAGS=()
+          for d in $DEVICES_INPUT; do
+            DEVICE_FLAGS+=(--device "$d")
+          done
+
+          gcloud firebase test android run \
+            --type robo \
+            --app "$APK" \
+            --timeout "${{ inputs.timeout }}" \
+            --project "$FIREBASE_PROJECT_ID" \
+            "${DEVICE_FLAGS[@]}"
