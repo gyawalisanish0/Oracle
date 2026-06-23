@@ -1,0 +1,58 @@
+cmake_minimum_required(VERSION 3.22.1)
+
+project("llama-android")
+
+# Build llama.cpp (vendored in-tree). Disable everything we don't ship so the
+# Android cross-compile stays lean: just the core llama + ggml CPU backend,
+# statically linked into our single JNI library.
+set(LLAMA_BUILD_COMMON   OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_TOOLS    OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
+set(LLAMA_CURL           OFF CACHE BOOL "" FORCE)
+set(GGML_OPENMP          OFF CACHE BOOL "" FORCE)
+set(GGML_LLAMAFILE       OFF CACHE BOOL "" FORCE)
+set(GGML_NATIVE          OFF CACHE BOOL "" FORCE)
+
+# --- GPU acceleration (Vulkan + OpenCL) -------------------------------------
+# Off by default so the plain CPU cross-compile always works (e.g. contributors
+# without the GPU SDKs). CI turns this on with -DORACLE_GPU=ON and supplies the
+# OpenCL loader (OpenCL_INCLUDE_DIR / OpenCL_LIBRARY) and a Vulkan glslc on PATH.
+option(ORACLE_GPU "Build llama.cpp with GPU backends (Vulkan + OpenCL)" OFF)
+
+if(ORACLE_GPU)
+    # GPU backends are statically linked into libllama-android.so and
+    # self-register at init, so the CPU backend is always present (no runtime
+    # plugin loading). Vulkan is safe down to minSdk because ggml-vulkan resolves
+    # its one >1.0 entry point dynamically (see the ggml-vulkan.cpp patch); OpenCL
+    # binds the device's ICD at runtime.
+
+    # OpenCL: the Adreno-optimized backend Qualcomm contributed. Kernels are
+    # embedded into the .so (no runtime asset loading) and the Adreno-tuned
+    # kernels are selected — best path for Adreno-class GPUs.
+    set(GGML_OPENCL                   ON CACHE BOOL "" FORCE)
+    set(GGML_OPENCL_EMBED_KERNELS     ON CACHE BOOL "" FORCE)
+    set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "" FORCE)
+
+    # Vulkan: portable GPU backend. Cross-compiling its shaders needs a host build
+    # of vulkan-shaders-gen, so point ggml at a host toolchain file.
+    set(GGML_VULKAN ON CACHE BOOL "" FORCE)
+    set(GGML_VULKAN_SHADERS_GEN_TOOLCHAIN
+        "${CMAKE_CURRENT_LIST_DIR}/host-toolchain.cmake" CACHE STRING "" FORCE)
+endif()
+
+add_subdirectory(llama.cpp build-llama)
+
+add_library(llama-android SHARED llama-android.cpp)
+
+target_include_directories(llama-android PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/llama.cpp/include
+    ${CMAKE_CURRENT_LIST_DIR}/llama.cpp/ggml/include)
+
+find_library(log-lib log)
+
+target_link_libraries(llama-android
+    llama
+    android
+    ${log-lib})
