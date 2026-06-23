@@ -79,8 +79,9 @@ llama/
 - `LLamaAndroid` owns the llama.cpp context and exposes `load`/`unload`/`send`
   (a `Flow<String>` of token deltas). The context is single-threaded, so every
   native call is serialized on one executor.
-- `LlamaCppBackend` adapts that to `LocalEngine.NativeBackend`, applying the Gemma
-  chat template (`GemmaPrompt`). `ModelManager` owns the lifecycle and hands
+- `LlamaCppBackend` adapts that to `LocalEngine.NativeBackend`, applying each loaded
+  model's own embedded chat template (`format_chat`), with a generic `ChatFormat`
+  fallback for models that ship none. `ModelManager` owns the lifecycle and hands
   `LocalEngine` a backend provider, so the active model swaps at runtime without
   rebuilding the router.
 - The JNI is written against llama.cpp's current C API and avoids the `common`

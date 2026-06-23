@@ -15,7 +15,7 @@ when it does, you see exactly what.**
 | Encrypted at rest | Conversations: AES-256 `EncryptedFile`. Provider credentials: `EncryptedSharedPreferences`. Keys live in the Android Keystore (hardware-backed where available). |
 | No exfiltration via backup | `android:allowBackup="false"` plus explicit exclude rules in `data_extraction_rules.xml`. |
 | No tracking | No analytics SDKs and no third-party trackers. Crash reporting (Firebase Crashlytics) is **opt-in and off by default**, sends only crash/error reports when enabled, and is entirely inert unless a Firebase config is added. The only other network is the opt-in cloud provider and the explicit model download. |
-| Model download is opt-in and content-free | Downloading a Gemma model transmits **no chat content** — only fetches public weights from an allow-listed host, and only after an explicit confirmation dialog. It is deliberately **not** gated by the inference kill switch (see below). Importing a `.gguf` is fully offline. |
+| Model download is opt-in and content-free | Downloading a model transmits **no chat content** — only fetches public weights from an allow-listed host, and only after an explicit confirmation dialog. It is deliberately **not** gated by the inference kill switch (see below). Importing a `.gguf` is fully offline. |
 
 ## Defaults (most private possible)
 
