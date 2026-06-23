@@ -10,7 +10,7 @@ when it does, you see exactly what.**
 | Local by default | `PrivacyRouter` answers locally unless a per-message cloud action is taken. There is no code path that auto-escalates to cloud. |
 | Kill switch is absolute | `NetworkGuard.assertNetworkAllowed` throws unless the switch is off **and** consent is granted. `RemoteEngine` is only reachable through the router, which calls the guard first. |
 | Consent is explicit | `cloudConsentGiven` defaults to `false`. Until granted in Settings, no message can leave the device. |
-| See-before-send | The UI shows the exact redacted payload and blocks on user confirmation before any cloud request. |
+| Sent-payload transparency | Every cloud reply shows the exact redacted text that was sent (`Sent (redacted): …`), so the data that left the device is visible. |
 | Redaction before cloud | `PiiRedactor` strips emails, SSNs, cards, IPs, and phone numbers from the prompt **and** the conversation history sent upstream. |
 | Encrypted at rest | Conversations: AES-256 `EncryptedFile`. Provider credentials: `EncryptedSharedPreferences`. Keys live in the Android Keystore (hardware-backed where available). |
 | No exfiltration via backup | `android:allowBackup="false"` plus explicit exclude rules in `data_extraction_rules.xml`. |
@@ -49,4 +49,4 @@ exfiltration, no silent/background traffic — is preserved.
   the redactor reduces sensitive content but is heuristic, not a guarantee against
   every form of PII.
 - **The redactor is conservative but not infallible.** It favors over-redaction,
-  and the see-before-send step puts the final decision in the user's hands.
+  and every cloud reply surfaces the exact redacted text that was sent.
