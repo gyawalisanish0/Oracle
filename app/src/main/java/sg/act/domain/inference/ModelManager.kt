@@ -59,9 +59,13 @@ class ModelManager(
 
     sealed interface State {
         data object NotLoaded : State
-        data class Loading(val modelName: String) : State
+        data class Loading(val modelName: String, val fileName: String? = null) : State
         /** [detail] summarizes how it's running, e.g. "GPU · 99 layers" or "CPU". */
-        data class Ready(val modelName: String, val detail: String? = null) : State
+        data class Ready(
+            val modelName: String,
+            val detail: String? = null,
+            val fileName: String? = null,
+        ) : State
         data class Error(val message: String) : State
     }
 
@@ -123,7 +127,7 @@ class ModelManager(
             refreshInstalled()
             return@withLock
         }
-        loadIntoContext(file.absolutePath, descriptor.displayName)
+        loadIntoContext(file.absolutePath, descriptor.displayName, descriptor.fileName)
         refreshInstalled()
     }
 
@@ -151,7 +155,7 @@ class ModelManager(
         val spec = ModelCatalog.models.firstOrNull { it.fileName == fileName }
         val displayName = spec?.displayName ?: fileName
         val source = if (spec != null) ModelSource.DOWNLOAD else ModelSource.IMPORT
-        loadIntoContext(file.absolutePath, displayName)
+        loadIntoContext(file.absolutePath, displayName, fileName)
         if (_state.value is State.Ready) {
             modelStore.save(ModelDescriptor(fileName, displayName, source, file.length()))
         }
@@ -170,13 +174,27 @@ class ModelManager(
         refreshInstalled()
     }
 
-    /** Re-read on-disk models into [installed], flagging the active one. */
+    /**
+     * Re-read on-disk models into [installed], flagging the one that is actually
+     * loading/loaded right now as active. The flag is derived from the live [state]
+     * — the same source the chat top-bar subtitle reads — so the list's checkmark
+     * (and Settings' "In use") can never disagree with the subtitle, including
+     * during a load. (Persistence for next launch is [modelStore], updated only on a
+     * successful load; it is intentionally not what drives the UI's active marker.)
+     */
     private fun refreshInstalled() {
-        val activeName = modelStore.load()?.fileName
+        val activeName = activeFileName()
         _installed.value = modelStorage.listModels()
             .filterNot { it.name.endsWith(".part") }
             .map { describe(it, activeName) }
             .sortedWith(compareByDescending<InstalledModel> { it.isActive }.thenBy { it.displayName })
+    }
+
+    /** File name of the model currently loading or loaded, or null when none is. */
+    private fun activeFileName(): String? = when (val s = _state.value) {
+        is State.Loading -> s.fileName
+        is State.Ready -> s.fileName
+        else -> null
     }
 
     private fun describe(file: File, activeName: String?): InstalledModel {
@@ -318,15 +336,19 @@ class ModelManager(
         source: ModelSource,
         sizeBytes: Long,
     ) {
-        loadIntoContext(path, displayName)
+        loadIntoContext(path, displayName, fileName)
         if (_state.value is State.Ready) {
             modelStore.save(ModelDescriptor(fileName, displayName, source, sizeBytes))
         }
         refreshInstalled()
     }
 
-    private suspend fun loadIntoContext(path: String, displayName: String) {
-        _state.value = State.Loading(displayName)
+    private suspend fun loadIntoContext(path: String, displayName: String, fileName: String) {
+        _state.value = State.Loading(displayName, fileName)
+        // Reflect the new active model in the installed list immediately, so the
+        // checkmark follows the subtitle the instant loading begins — not only after
+        // the load finishes (which is when modelStore used to update).
+        refreshInstalled()
         // Dynamic GPU offload: try the most layers first and step down until the
         // load fits the GPU, so a model too large to fully offload still gets
         // *partial* GPU acceleration instead of all-or-nothing. The final rung is 0
@@ -344,7 +366,7 @@ class ModelManager(
         var lastFailure: Throwable? = null
         for (layers in ladder) {
             sg.act.domain.core.CrashReporting.setKey("gpu_layers_attempt", layers)
-            lastFailure = attemptLoad(path, displayName, layers)
+            lastFailure = attemptLoad(path, displayName, fileName, layers)
             if (lastFailure == null) {
                 sg.act.domain.core.CrashReporting.log("Model loaded with n_gpu_layers=$layers")
                 return // loaded (state set to Ready)
@@ -362,7 +384,12 @@ class ModelManager(
      * (state set to Ready) or the failure for the caller to fall back / record. The
      * GPU crash marker is written only when offloading.
      */
-    private suspend fun attemptLoad(path: String, displayName: String, gpuLayers: Int): Throwable? = try {
+    private suspend fun attemptLoad(
+        path: String,
+        displayName: String,
+        fileName: String,
+        gpuLayers: Int,
+    ): Throwable? = try {
         llama.unload() // free any prior/partial context first (no-op if none)
         backend = null
         gpuGuard.beginAttempt(gpuLayers)
@@ -377,7 +404,7 @@ class ModelManager(
         }
         sg.act.domain.core.CrashReporting.setKey("acceleration", detail)
         sg.act.domain.core.CrashReporting.log("Loaded '$displayName' on $detail; backends=${llama.backendInfo()}")
-        _state.value = State.Ready(displayName, detail)
+        _state.value = State.Ready(displayName, detail, fileName)
         null
     } catch (e: Exception) {
         gpuGuard.endAttempt() // threw (didn't abort the process) — not a driver crash
