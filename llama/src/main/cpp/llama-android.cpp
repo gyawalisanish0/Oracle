@@ -187,7 +187,7 @@ Java_sg_act_domain_llama_LLamaAndroid_free_1model(JNIEnv *, jobject, jlong model
 }
 
 JNIEXPORT jlong JNICALL
-Java_sg_act_domain_llama_LLamaAndroid_new_1context(JNIEnv *, jobject, jlong jmodel, jint n_ctx_requested) {
+Java_sg_act_domain_llama_LLamaAndroid_new_1context(JNIEnv *, jobject, jlong jmodel, jint n_ctx_requested, jint n_threads_requested) {
     auto *model = reinterpret_cast<llama_model *>(jmodel);
     if (model == nullptr) return 0;
 
@@ -201,9 +201,12 @@ Java_sg_act_domain_llama_LLamaAndroid_new_1context(JNIEnv *, jobject, jlong jmod
     params.n_ctx = n_ctx;
     params.n_batch = N_BATCH;
     params.n_ubatch = N_BATCH;
-    int threads = 4;
+    // Thread count is chosen on the Kotlin side from the device's performance-core
+    // count (see DeviceCapabilities.recommendedThreads). Fall back to 4 if unset.
+    const int threads = n_threads_requested > 0 ? n_threads_requested : 4;
     params.n_threads = threads;
     params.n_threads_batch = threads;
+    LOGi("Context using %d threads", threads);
 
     llama_context *ctx = llama_init_from_model(model, params);
     if (ctx == nullptr) {

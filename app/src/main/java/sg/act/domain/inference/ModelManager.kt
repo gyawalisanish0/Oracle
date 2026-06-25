@@ -49,6 +49,8 @@ class ModelManager(
     private val deviceRecommendedContext: Int,
     /** Largest context the user may pick on this device (bounds the presets). */
     private val deviceMaxContext: Int,
+    /** Generation thread count for this device (performance-core count). */
+    private val deviceThreads: Int,
     /** User's context-length choice (0 = Auto). Read at each load. */
     private val contextSettings: ContextSettings,
     /** Crash-safe GPU offload guard (forces full offload with CPU fallback). */
@@ -426,7 +428,7 @@ class ModelManager(
         llama.unload() // free any prior/partial context first (no-op if none)
         backend = null
         gpuGuard.beginAttempt(gpuLayers)
-        llama.load(path, effectiveContextTokens(), gpuLayers)
+        llama.load(path, effectiveContextTokens(), gpuLayers, deviceThreads)
         gpuGuard.endAttempt()
         backend = LlamaCppBackend(displayName, llama)
         val hasGpuDevice = llama.backendInfo().contains("[GPU]")

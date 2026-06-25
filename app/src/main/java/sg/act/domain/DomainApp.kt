@@ -51,6 +51,7 @@ class AppContainer(app: DomainApp) {
         scope = appScope,
         deviceRecommendedContext = deviceCapabilities.recommendedContextTokens(),
         deviceMaxContext = deviceCapabilities.maxAllowedContextTokens(),
+        deviceThreads = deviceCapabilities.recommendedThreads,
         contextSettings = ContextSettings(app),
         gpuGuard = GpuGuard(app),
         nativeLibDir = app.applicationInfo.nativeLibraryDir,

@@ -5,6 +5,13 @@ All notable changes to Domain AI are documented here. This project adheres to
 
 ## [1.05] — 2026-06-25
 
+### Performance
+- **Adaptive generation threads.** Thread count is now chosen from the device's
+  **performance-core count** (probed once at startup) instead of a hardcoded 4, so
+  inference uses the fast cores on flagships and avoids dragging in the slow little
+  cores on budget phones (which also keeps the UI responsive). Flash attention was
+  verified already auto-enabled.
+
 ### Fixed
 - **Consistent model selection.** The chat top-bar subtitle, the quick-panel
   checkmark, and Settings' "In use" now always agree on the active on-device model,
