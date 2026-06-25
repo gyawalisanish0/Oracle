@@ -1,5 +1,7 @@
 package sg.act.domain.data.repository
 
+import android.content.Context
+import sg.act.domain.R
 import sg.act.domain.data.local.ConversationStore
 import sg.act.domain.data.local.RemoteConfigStore
 import sg.act.domain.data.local.SelectionStore
@@ -31,6 +33,7 @@ import kotlinx.coroutines.withContext
  * exposing the active one plus the ordered list for the history drawer.
  */
 class ChatRepository(
+    private val context: Context,
     val privacySettings: PrivacySettings,
     private val conversationStore: ConversationStore,
     private val remoteConfigStore: RemoteConfigStore,
@@ -164,10 +167,13 @@ class ChatRepository(
         } catch (e: CancellationException) {
             // User pressed Stop. Keep the partial reply and persist it before the
             // coroutine unwinds, then propagate the cancellation.
-            finalizeReply(stripLeadingNameLabel(builder.toString()), outcome.note ?: "Stopped.")
+            finalizeReply(
+                stripLeadingNameLabel(builder.toString()),
+                outcome.note ?: context.getString(R.string.reply_stopped),
+            )
             throw e
         } catch (e: Exception) {
-            errorNote = "Request failed (${e.message}). Partial reply shown."
+            errorNote = context.getString(R.string.reply_request_failed, e.message ?: "")
             sg.act.domain.core.CrashReporting.record(e)
         }
 

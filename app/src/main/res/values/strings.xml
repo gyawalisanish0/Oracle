@@ -151,6 +151,19 @@
     <string name="model_transfer_failed">Couldn\'t get %1$s: %2$s</string>
     <string name="model_transfer_dismiss">Dismiss</string>
 
+    <!-- Error / status messages surfaced from non-UI layers -->
+    <string name="model_import_failed">Import failed.</string>
+    <string name="model_load_failed">Could not load model.</string>
+    <string name="model_all_mirrors_failed">All %1$d mirrors failed. %2$s</string>
+    <string name="model_gguf_invalid_download">Downloaded file is not a valid GGUF model.</string>
+    <string name="model_finalize_download_failed">Could not finalize downloaded model.</string>
+    <string name="model_gguf_invalid_import">Not a valid GGUF model file.</string>
+    <string name="model_finalize_import_failed">Could not finalize imported model.</string>
+    <string name="provider_validate_failed">Couldn\'t validate the connection.</string>
+    <string name="openrouter_unreachable">Could not reach OpenRouter.</string>
+    <string name="reply_stopped">Stopped.</string>
+    <string name="reply_request_failed">Request failed (%1$s). Partial reply shown.</string>
+
     <!-- Chat model-loading / acquisition banners -->
     <string name="chat_model_loading">Loading on-device model…</string>
     <string name="chat_model_downloading">Downloading %1$s — %2$d%%</string>

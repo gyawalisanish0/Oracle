@@ -1,5 +1,7 @@
 package sg.act.domain.inference
 
+import android.content.Context
+import sg.act.domain.R
 import sg.act.domain.data.local.ModelDescriptor
 import sg.act.domain.data.local.ModelSource
 import sg.act.domain.data.local.ModelStorage
@@ -39,6 +41,7 @@ data class InstalledModel(
  * context is never loaded/unloaded concurrently.
  */
 class ModelManager(
+    private val context: Context,
     private val modelStore: ModelStore,
     private val modelStorage: ModelStorage,
     private val scope: CoroutineScope,
@@ -237,7 +240,10 @@ class ModelManager(
                 activate(file.absolutePath, displayName, file.name, ModelSource.IMPORT, file.length())
             } catch (e: Exception) {
                 sg.act.domain.core.CrashReporting.record(e)
-                _transfer.value = TransferState.Failed(displayName, e.message ?: "Import failed.")
+                _transfer.value = TransferState.Failed(
+                    displayName,
+                    e.message ?: context.getString(R.string.model_import_failed),
+                )
             }
         }
 
@@ -284,7 +290,7 @@ class ModelManager(
         // the model that is actually loaded.
         _transfer.value = TransferState.Failed(
             spec.displayName,
-            "All ${spec.urls.size} mirrors failed. ${lastError.orEmpty()}".trim(),
+            context.getString(R.string.model_all_mirrors_failed, spec.urls.size, lastError.orEmpty()).trim(),
         )
     }
 
@@ -400,7 +406,7 @@ class ModelManager(
             }
         }
         // Every rung failed — surface and record once, with the context keys above.
-        val message = lastFailure?.message ?: "Could not load model."
+        val message = lastFailure?.message ?: context.getString(R.string.model_load_failed)
         _state.value = State.Error(message)
         sg.act.domain.core.CrashReporting.log("Model load failed at every offload level")
         lastFailure?.let { sg.act.domain.core.CrashReporting.record(it) }

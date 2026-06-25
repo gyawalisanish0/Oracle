@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import sg.act.domain.R
 import sg.act.domain.data.repository.ChatRepository
 import sg.act.domain.inference.InstalledModel
 import sg.act.domain.inference.ModelCatalog
@@ -142,7 +143,8 @@ class SettingsViewModel(
         } else {
             _ui.value = _ui.value.copy(
                 providerValidating = false,
-                providerError = result.exceptionOrNull()?.message ?: "Couldn't validate the connection.",
+                providerError = result.exceptionOrNull()?.message
+                    ?: application.getString(R.string.provider_validate_failed),
             )
         }
     }
@@ -156,7 +158,7 @@ class SettingsViewModel(
         } catch (e: Exception) {
             _ui.value = _ui.value.copy(
                 openRouterLoading = false,
-                openRouterError = e.message ?: "Could not reach OpenRouter.",
+                openRouterError = e.message ?: application.getString(R.string.openrouter_unreachable),
             )
         }
     }

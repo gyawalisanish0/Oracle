@@ -45,6 +45,7 @@ class AppContainer(app: DomainApp) {
     val deviceCapabilities = DeviceCapabilities(app)
 
     val modelManager = ModelManager(
+        context = app,
         modelStore = ModelStore(app),
         modelStorage = ModelStorage(app),
         scope = appScope,
@@ -57,6 +58,7 @@ class AppContainer(app: DomainApp) {
     )
 
     val repository: ChatRepository = ChatRepository(
+        context = app,
         privacySettings = PrivacySettings(app),
         conversationStore = ConversationStore(app),
         remoteConfigStore = RemoteConfigStore(app),
