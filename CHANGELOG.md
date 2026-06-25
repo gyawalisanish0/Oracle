@@ -6,9 +6,6 @@ All notable changes to Domain AI are documented here. This project adheres to
 ## [1.05] — 2026-06-25
 
 ### Fixed
-- **Replies no longer cut off mid-sentence.** Output length is now governed by the
-  context-window setting instead of a hidden 512-token cap, so long answers finish
-  on their own — and a larger context allows longer replies.
 - **Consistent model selection.** The chat top-bar subtitle, the quick-panel
   checkmark, and Settings' "In use" now always agree on the active on-device model,
   including while a model is loading.
@@ -20,18 +17,14 @@ All notable changes to Domain AI are documented here. This project adheres to
   shows real progress ("Downloading X — 42%" / "Importing X…") in both chat and
   Settings, distinct from "Loading on-device model…" — which now means only loading
   into memory.
-- **Cloud sends:** PII redaction is applied and each cloud reply shows the exact
-  redacted text that was sent; the separate see-before-send confirmation dialog was
-  removed.
 
 ### Internal
 - All user-facing strings moved to `res/values/strings.xml` (the pure-Kotlin,
   JVM-tested privacy core stays Android-free by design).
-- Release is now published straight from the Actions "Run workflow" button — no git
-  tag or terminal needed.
 - Docs: refined README (badges, release link, tech-stack table), added
-  `docs/MODEL_SELECTION.md`, generalized model-specific references, and noted the
-  Blaze-plan requirement for Firebase Test Lab.
+  `docs/MODEL_SELECTION.md`, generalized model-specific references, and corrected the
+  cloud-privacy description (PII redaction + the post-send "Sent (redacted)" badge;
+  the see-before-send dialog was removed).
 
 ## [1.01] — 2026-06-23
 
@@ -55,6 +48,8 @@ First public release.
 - **User-configurable context window** (Auto or fixed, bounded by device RAM) from
   Settings and a chat quick-panel.
 - **On-device model management** — download a GGUF model in-app or import your own.
+- **Reply length follows the context window** — output is bounded by the chosen
+  context size rather than a fixed token cap, so long answers finish on their own.
 
 ### Fixed
 - Chat history no longer vanishes after closing and reopening the app. The
