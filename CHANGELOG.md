@@ -5,6 +5,13 @@ All notable changes to Domain AI are documented here. This project adheres to
 
 ## [1.05] — 2026-06-25
 
+### Added
+- **Generation keeps running in the background.** A long on-device reply (and a model
+  download) now continues when you leave the app, under a foreground service that
+  holds the process at priority so Android doesn't kill it mid-way — with a "Generating
+  reply…" / download-progress notification while it runs. Swiping the app away from
+  recents stops it.
+
 ### Performance
 - **Adaptive, core-pinned generation threads.** Thread count is now probed from the
   device's CPU at startup instead of a hardcoded 4: Auto picks a middle-ground count —
