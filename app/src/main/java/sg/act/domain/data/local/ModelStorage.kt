@@ -1,6 +1,7 @@
 package sg.act.domain.data.local
 
 import android.content.Context
+import sg.act.domain.R
 import java.io.File
 import java.io.InputStream
 
@@ -26,10 +27,10 @@ class ModelStorage(private val context: Context) {
 
     /** Validate a fully-downloaded temp file and atomically promote it to [name]. */
     fun finalize(temp: File, name: String): File {
-        require(isGguf(temp)) { temp.delete(); "Downloaded file is not a valid GGUF model." }
+        require(isGguf(temp)) { temp.delete(); context.getString(R.string.model_gguf_invalid_download) }
         val target = fileFor(name)
         if (target.exists()) target.delete()
-        check(temp.renameTo(target)) { "Could not finalize downloaded model." }
+        check(temp.renameTo(target)) { context.getString(R.string.model_finalize_download_failed) }
         return target
     }
 
@@ -41,9 +42,9 @@ class ModelStorage(private val context: Context) {
         val target = fileFor(name)
         val tmp = File(dir, "${target.name}.part")
         tmp.outputStream().use { out -> source.copyTo(out) }
-        require(isGguf(tmp)) { tmp.delete(); "Not a valid GGUF model file." }
+        require(isGguf(tmp)) { tmp.delete(); context.getString(R.string.model_gguf_invalid_import) }
         if (target.exists()) target.delete()
-        check(tmp.renameTo(target)) { "Could not finalize imported model." }
+        check(tmp.renameTo(target)) { context.getString(R.string.model_finalize_import_failed) }
         return target
     }
 

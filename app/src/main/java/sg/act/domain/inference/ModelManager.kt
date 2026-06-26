@@ -1,5 +1,7 @@
 package sg.act.domain.inference
 
+import android.content.Context
+import sg.act.domain.R
 import sg.act.domain.data.local.ModelDescriptor
 import sg.act.domain.data.local.ModelSource
 import sg.act.domain.data.local.ModelStorage
@@ -39,6 +41,7 @@ data class InstalledModel(
  * context is never loaded/unloaded concurrently.
  */
 class ModelManager(
+    private val context: Context,
     private val modelStore: ModelStore,
     private val modelStorage: ModelStorage,
     private val scope: CoroutineScope,
@@ -46,8 +49,16 @@ class ModelManager(
     private val deviceRecommendedContext: Int,
     /** Largest context the user may pick on this device (bounds the presets). */
     private val deviceMaxContext: Int,
+    /** Thread count used for "Auto" — the device-adaptive recommendation. */
+    private val deviceAutoThreads: Int,
+    /** Largest thread count the user may pick on this device (bounds the presets). */
+    private val deviceMaxThreads: Int,
+    /** All core indices ordered fastest-first; the threadpool pins to the first N. */
+    private val coresBySpeed: IntArray,
     /** User's context-length choice (0 = Auto). Read at each load. */
     private val contextSettings: ContextSettings,
+    /** User's thread-count choice (0 = Auto). Read at each load. */
+    private val threadSettings: ThreadSettings,
     /** Crash-safe GPU offload guard (forces full offload with CPU fallback). */
     private val gpuGuard: GpuGuard,
     /** App-private native lib dir + device API level for selective backend loading. */
@@ -59,10 +70,30 @@ class ModelManager(
 
     sealed interface State {
         data object NotLoaded : State
-        data class Loading(val modelName: String) : State
+        data class Loading(val modelName: String, val fileName: String? = null) : State
         /** [detail] summarizes how it's running, e.g. "GPU · 99 layers" or "CPU". */
-        data class Ready(val modelName: String, val detail: String? = null) : State
+        data class Ready(
+            val modelName: String,
+            val detail: String? = null,
+            val fileName: String? = null,
+        ) : State
         data class Error(val message: String) : State
+    }
+
+    /**
+     * A model-acquisition process (network download or local import) in flight.
+     * This is its OWN lifecycle, kept separate from [State] (the in-memory model
+     * load), so a long download never masquerades as "loading", and a failed
+     * download/import never clobbers the model that is actually loaded.
+     */
+    sealed interface TransferState {
+        data object Idle : TransferState
+        data class Downloading(
+            val modelName: String,
+            val progress: ModelDownloader.Progress?,
+        ) : TransferState
+        data class Importing(val modelName: String) : TransferState
+        data class Failed(val modelName: String, val message: String) : TransferState
     }
 
     private val mutex = Mutex()
@@ -70,8 +101,9 @@ class ModelManager(
     private val _state = MutableStateFlow<State>(State.NotLoaded)
     val state: StateFlow<State> = _state.asStateFlow()
 
-    private val _downloadProgress = MutableStateFlow<ModelDownloader.Progress?>(null)
-    val downloadProgress: StateFlow<ModelDownloader.Progress?> = _downloadProgress.asStateFlow()
+    /** Download/import lifecycle, separate from the in-memory [state]. */
+    private val _transfer = MutableStateFlow<TransferState>(TransferState.Idle)
+    val transfer: StateFlow<TransferState> = _transfer.asStateFlow()
 
     /** Every model file currently on disk (downloaded + imported), active flagged. */
     private val _installed = MutableStateFlow<List<InstalledModel>>(emptyList())
@@ -123,7 +155,7 @@ class ModelManager(
             refreshInstalled()
             return@withLock
         }
-        loadIntoContext(file.absolutePath, descriptor.displayName)
+        loadIntoContext(file.absolutePath, descriptor.displayName, descriptor.fileName)
         refreshInstalled()
     }
 
@@ -151,7 +183,7 @@ class ModelManager(
         val spec = ModelCatalog.models.firstOrNull { it.fileName == fileName }
         val displayName = spec?.displayName ?: fileName
         val source = if (spec != null) ModelSource.DOWNLOAD else ModelSource.IMPORT
-        loadIntoContext(file.absolutePath, displayName)
+        loadIntoContext(file.absolutePath, displayName, fileName)
         if (_state.value is State.Ready) {
             modelStore.save(ModelDescriptor(fileName, displayName, source, file.length()))
         }
@@ -170,13 +202,27 @@ class ModelManager(
         refreshInstalled()
     }
 
-    /** Re-read on-disk models into [installed], flagging the active one. */
+    /**
+     * Re-read on-disk models into [installed], flagging the one that is actually
+     * loading/loaded right now as active. The flag is derived from the live [state]
+     * — the same source the chat top-bar subtitle reads — so the list's checkmark
+     * (and Settings' "In use") can never disagree with the subtitle, including
+     * during a load. (Persistence for next launch is [modelStore], updated only on a
+     * successful load; it is intentionally not what drives the UI's active marker.)
+     */
     private fun refreshInstalled() {
-        val activeName = modelStore.load()?.fileName
+        val activeName = activeFileName()
         _installed.value = modelStorage.listModels()
             .filterNot { it.name.endsWith(".part") }
             .map { describe(it, activeName) }
             .sortedWith(compareByDescending<InstalledModel> { it.isActive }.thenBy { it.displayName })
+    }
+
+    /** File name of the model currently loading or loaded, or null when none is. */
+    private fun activeFileName(): String? = when (val s = _state.value) {
+        is State.Loading -> s.fileName
+        is State.Ready -> s.fileName
+        else -> null
     }
 
     private fun describe(file: File, activeName: String?): InstalledModel {
@@ -194,14 +240,18 @@ class ModelManager(
     suspend fun importModel(input: InputStream, fileName: String, displayName: String) =
         mutex.withLock {
             try {
-                _state.value = State.Loading(displayName)
+                _transfer.value = TransferState.Importing(displayName)
                 val file = withContext(Dispatchers.IO) {
                     modelStorage.importFrom(input, fileName)
                 }
+                _transfer.value = TransferState.Idle
                 activate(file.absolutePath, displayName, file.name, ModelSource.IMPORT, file.length())
             } catch (e: Exception) {
                 sg.act.domain.core.CrashReporting.record(e)
-                _state.value = State.Error(e.message ?: "Import failed.")
+                _transfer.value = TransferState.Failed(
+                    displayName,
+                    e.message ?: context.getString(R.string.model_import_failed),
+                )
             }
         }
 
@@ -212,40 +262,49 @@ class ModelManager(
      * report an error once every mirror is exhausted.
      */
     suspend fun downloadModel(spec: ModelSpec) = mutex.withLock {
-        _state.value = State.Loading(spec.displayName)
+        _transfer.value = TransferState.Downloading(spec.displayName, null)
         val temp = modelStorage.tempFor(spec.fileName)
         var lastError: String? = null
 
         for ((index, url) in spec.urls.withIndex()) {
             try {
-                downloader.download(url, spec.sizeBytes, temp).collect { _downloadProgress.value = it }
+                downloader.download(url, spec.sizeBytes, temp).collect {
+                    _transfer.value = TransferState.Downloading(spec.displayName, it)
+                }
                 // Guard against truncated/corrupt transfers before promoting the file.
                 if (!modelStorage.isGguf(temp)) {
                     throw IllegalStateException("downloaded file is not a valid GGUF")
                 }
-                _downloadProgress.value = null
                 val file = withContext(Dispatchers.IO) { modelStorage.finalize(temp, spec.fileName) }
+                // Download done; the in-memory load below sets State.Loading/Ready.
+                _transfer.value = TransferState.Idle
                 activate(file.absolutePath, spec.displayName, file.name, ModelSource.DOWNLOAD, file.length())
                 return@withLock // success
             } catch (e: CancellationException) {
                 // User cancelled: drop the partial and return to idle, don't fall
-                // through to the next mirror.
-                _downloadProgress.value = null
+                // through to the next mirror. The loaded model (if any) is untouched.
                 withContext(NonCancellable + Dispatchers.IO) { temp.delete() }
-                _state.value = State.NotLoaded
+                _transfer.value = TransferState.Idle
                 throw e
             } catch (e: Exception) {
                 lastError = e.message
-                _downloadProgress.value = null
                 withContext(Dispatchers.IO) { temp.delete() }
                 sg.act.domain.core.CrashReporting.record(e)
                 // try the next mirror (index + 1 of spec.urls.size)
             }
         }
 
-        _state.value = State.Error(
-            "All ${spec.urls.size} mirrors failed. ${lastError.orEmpty()}".trim(),
+        // Every mirror failed: surface it on the transfer channel without disturbing
+        // the model that is actually loaded.
+        _transfer.value = TransferState.Failed(
+            spec.displayName,
+            context.getString(R.string.model_all_mirrors_failed, spec.urls.size, lastError.orEmpty()).trim(),
         )
+    }
+
+    /** Dismiss a [TransferState.Failed] back to idle (e.g. user taps a dismiss). */
+    fun clearTransfer() {
+        if (_transfer.value is TransferState.Failed) _transfer.value = TransferState.Idle
     }
 
     /** Result of a one-shot speed benchmark on the loaded model. */
@@ -280,6 +339,24 @@ class ModelManager(
     /** Set the context length (0 = Auto) and reload the active model so it applies. */
     fun setContextTokens(tokens: Int) {
         contextSettings.setChosenTokens(tokens)
+        scope.launch { loadActiveModelIfPresent() }
+    }
+
+    /** The user's chosen thread count (0 = Auto). */
+    fun threadCount(): Int = threadSettings.chosenThreads()
+
+    /** Selectable thread-count presets allowed on this device (2..max). */
+    fun threadOptions(): List<Int> = (2..deviceMaxThreads).toList()
+
+    /** The thread count that will actually be used: chosen, or device Auto. */
+    fun effectiveThreads(): Int {
+        val chosen = threadSettings.chosenThreads()
+        return if (chosen > 0) chosen.coerceIn(2, deviceMaxThreads) else deviceAutoThreads
+    }
+
+    /** Set the thread count (0 = Auto) and reload the active model so it applies. */
+    fun setThreadCount(count: Int) {
+        threadSettings.setChosenThreads(count)
         scope.launch { loadActiveModelIfPresent() }
     }
 
@@ -318,15 +395,19 @@ class ModelManager(
         source: ModelSource,
         sizeBytes: Long,
     ) {
-        loadIntoContext(path, displayName)
+        loadIntoContext(path, displayName, fileName)
         if (_state.value is State.Ready) {
             modelStore.save(ModelDescriptor(fileName, displayName, source, sizeBytes))
         }
         refreshInstalled()
     }
 
-    private suspend fun loadIntoContext(path: String, displayName: String) {
-        _state.value = State.Loading(displayName)
+    private suspend fun loadIntoContext(path: String, displayName: String, fileName: String) {
+        _state.value = State.Loading(displayName, fileName)
+        // Reflect the new active model in the installed list immediately, so the
+        // checkmark follows the subtitle the instant loading begins — not only after
+        // the load finishes (which is when modelStore used to update).
+        refreshInstalled()
         // Dynamic GPU offload: try the most layers first and step down until the
         // load fits the GPU, so a model too large to fully offload still gets
         // *partial* GPU acceleration instead of all-or-nothing. The final rung is 0
@@ -344,14 +425,14 @@ class ModelManager(
         var lastFailure: Throwable? = null
         for (layers in ladder) {
             sg.act.domain.core.CrashReporting.setKey("gpu_layers_attempt", layers)
-            lastFailure = attemptLoad(path, displayName, layers)
+            lastFailure = attemptLoad(path, displayName, fileName, layers)
             if (lastFailure == null) {
                 sg.act.domain.core.CrashReporting.log("Model loaded with n_gpu_layers=$layers")
                 return // loaded (state set to Ready)
             }
         }
         // Every rung failed — surface and record once, with the context keys above.
-        val message = lastFailure?.message ?: "Could not load model."
+        val message = lastFailure?.message ?: context.getString(R.string.model_load_failed)
         _state.value = State.Error(message)
         sg.act.domain.core.CrashReporting.log("Model load failed at every offload level")
         lastFailure?.let { sg.act.domain.core.CrashReporting.record(it) }
@@ -362,11 +443,24 @@ class ModelManager(
      * (state set to Ready) or the failure for the caller to fall back / record. The
      * GPU crash marker is written only when offloading.
      */
-    private suspend fun attemptLoad(path: String, displayName: String, gpuLayers: Int): Throwable? = try {
+    private suspend fun attemptLoad(
+        path: String,
+        displayName: String,
+        fileName: String,
+        gpuLayers: Int,
+    ): Throwable? = try {
         llama.unload() // free any prior/partial context first (no-op if none)
         backend = null
         gpuGuard.beginAttempt(gpuLayers)
-        llama.load(path, effectiveContextTokens(), gpuLayers)
+        val threads = effectiveThreads()
+        // Pin to the fastest `threads` cores so generation stays on the big cluster;
+        // empty when /sys was unreadable, in which case the native side skips pinning.
+        val affinity = if (coresBySpeed.isNotEmpty()) {
+            coresBySpeed.take(threads).toIntArray()
+        } else {
+            IntArray(0)
+        }
+        llama.load(path, effectiveContextTokens(), gpuLayers, threads, affinity)
         gpuGuard.endAttempt()
         backend = LlamaCppBackend(displayName, llama)
         val hasGpuDevice = llama.backendInfo().contains("[GPU]")
@@ -377,7 +471,7 @@ class ModelManager(
         }
         sg.act.domain.core.CrashReporting.setKey("acceleration", detail)
         sg.act.domain.core.CrashReporting.log("Loaded '$displayName' on $detail; backends=${llama.backendInfo()}")
-        _state.value = State.Ready(displayName, detail)
+        _state.value = State.Ready(displayName, detail, fileName)
         null
     } catch (e: Exception) {
         gpuGuard.endAttempt() // threw (didn't abort the process) — not a driver crash

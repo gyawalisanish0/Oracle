@@ -6,10 +6,10 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import sg.act.domain.R
 import sg.act.domain.data.repository.ChatRepository
 import sg.act.domain.inference.InstalledModel
 import sg.act.domain.inference.ModelCatalog
-import sg.act.domain.inference.ModelDownloader
 import sg.act.domain.inference.ModelManager
 import sg.act.domain.inference.ModelSpec
 import sg.act.domain.inference.OpenRouterClient
@@ -33,7 +33,7 @@ data class SettingsUiState(
     val privacy: PrivacyState = PrivacyState(),
     val hasProvider: Boolean = false,
     val modelState: ModelManager.State = ModelManager.State.NotLoaded,
-    val downloadProgress: ModelDownloader.Progress? = null,
+    val transfer: ModelManager.TransferState = ModelManager.TransferState.Idle,
     val catalog: List<ModelOption> = emptyList(),
     val installed: List<InstalledModel> = emptyList(),
     val totalRamMb: Long = 0,
@@ -45,6 +45,10 @@ data class SettingsUiState(
     val contextTokens: Int = 0,
     val contextOptions: List<Int> = emptyList(),
     val effectiveContextTokens: Int = 0,
+    // Generation threads (0 = Auto), allowed presets, and the value Auto resolves to.
+    val threadCount: Int = 0,
+    val threadOptions: List<Int> = emptyList(),
+    val effectiveThreads: Int = 0,
     // OpenRouter free-model picker
     val openRouterModels: List<OpenRouterClient.FreeModel> = emptyList(),
     val openRouterLoading: Boolean = false,
@@ -72,6 +76,9 @@ class SettingsViewModel(
             contextTokens = modelManager.contextTokens(),
             contextOptions = modelManager.contextOptions(),
             effectiveContextTokens = modelManager.effectiveContextTokens(),
+            threadCount = modelManager.threadCount(),
+            threadOptions = modelManager.threadOptions(),
+            effectiveThreads = modelManager.effectiveThreads(),
             catalog = ModelCatalog.models.map {
                 ModelOption(it, deviceCapabilities.rate(it.minRamMb))
             },
@@ -86,8 +93,8 @@ class SettingsViewModel(
         modelManager.state
             .onEach { _ui.value = _ui.value.copy(modelState = it) }
             .launchIn(viewModelScope)
-        modelManager.downloadProgress
-            .onEach { _ui.value = _ui.value.copy(downloadProgress = it) }
+        modelManager.transfer
+            .onEach { _ui.value = _ui.value.copy(transfer = it) }
             .launchIn(viewModelScope)
         modelManager.installed
             .onEach { _ui.value = _ui.value.copy(installed = it) }
@@ -143,7 +150,8 @@ class SettingsViewModel(
         } else {
             _ui.value = _ui.value.copy(
                 providerValidating = false,
-                providerError = result.exceptionOrNull()?.message ?: "Couldn't validate the connection.",
+                providerError = result.exceptionOrNull()?.message
+                    ?: application.getString(R.string.provider_validate_failed),
             )
         }
     }
@@ -157,7 +165,7 @@ class SettingsViewModel(
         } catch (e: Exception) {
             _ui.value = _ui.value.copy(
                 openRouterLoading = false,
-                openRouterError = e.message ?: "Could not reach OpenRouter.",
+                openRouterError = e.message ?: application.getString(R.string.openrouter_unreachable),
             )
         }
     }
@@ -196,6 +204,9 @@ class SettingsViewModel(
 
     fun cancelDownload() = modelManager.cancelDownload()
 
+    /** Dismiss a failed download/import notice. */
+    fun dismissTransfer() = modelManager.clearTransfer()
+
     fun unloadModel() = viewModelScope.launch { modelManager.unload() }
 
     /** Toggle GPU offload; reloads the active model so the change takes effect. */
@@ -210,6 +221,16 @@ class SettingsViewModel(
         _ui.value = _ui.value.copy(
             contextTokens = tokens,
             effectiveContextTokens = modelManager.effectiveContextTokens(),
+            benchmark = null,
+        )
+    }
+
+    /** Set the generation thread count (0 = Auto); reloads the active model to apply it. */
+    fun setThreadCount(count: Int) {
+        modelManager.setThreadCount(count)
+        _ui.value = _ui.value.copy(
+            threadCount = count,
+            effectiveThreads = modelManager.effectiveThreads(),
             benchmark = null,
         )
     }

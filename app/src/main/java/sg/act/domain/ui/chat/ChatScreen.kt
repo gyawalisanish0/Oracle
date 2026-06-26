@@ -76,6 +76,7 @@ import sg.act.domain.ui.components.ContextLengthRow
 import sg.act.domain.ui.components.KillSwitchChip
 import sg.act.domain.ui.components.MessageBubble
 import sg.act.domain.ui.components.SettingSwitchRow
+import sg.act.domain.ui.components.ThreadCountRow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,6 +130,7 @@ fun ChatScreen(
             onSelectCloud = { viewModel.selectCloudModel() },
             onSetGpu = viewModel::setGpuEnabled,
             onSetContext = viewModel::setContextTokens,
+            onSetThreads = viewModel::setThreadCount,
             onDismiss = { showInferencePanel = false },
         )
     }
@@ -209,6 +211,7 @@ fun ChatScreen(
             if (state.modelState is ModelManager.State.Loading) {
                 ModelLoadingBanner()
             }
+            ModelTransferBanner(state.transfer)
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 if (messages.isEmpty()) {
@@ -577,6 +580,7 @@ private fun InferencePanelSheet(
     onSelectCloud: () -> Unit,
     onSetGpu: (Boolean) -> Unit,
     onSetContext: (Int) -> Unit,
+    onSetThreads: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -626,6 +630,12 @@ private fun InferencePanelSheet(
                 effectiveTokens = state.effectiveContextTokens,
                 options = state.contextOptions,
                 onSelect = onSetContext,
+            )
+            ThreadCountRow(
+                chosenThreads = state.threadCount,
+                effectiveThreads = state.effectiveThreads,
+                options = state.threadOptions,
+                onSelect = onSetThreads,
             )
         }
     }
@@ -692,6 +702,55 @@ private fun ModelLoadingBanner() {
                     .fillMaxWidth()
                     .padding(top = dimensionResource(R.dimen.space_xs)),
             )
+        }
+    }
+}
+
+/**
+ * Banner for a model download/import in progress — distinct from [ModelLoadingBanner]
+ * (the in-memory load), so a long download shows real progress instead of looking
+ * like a stuck "loading". Renders nothing when idle/failed (failures surface in
+ * Settings, where Retry lives).
+ */
+@Composable
+private fun ModelTransferBanner(transfer: ModelManager.TransferState) {
+    val text: String
+    val fraction: Float?
+    when (transfer) {
+        is ModelManager.TransferState.Downloading -> {
+            text = stringResource(
+                R.string.chat_model_downloading,
+                transfer.modelName,
+                ((transfer.progress?.fraction ?: 0f) * 100).toInt(),
+            )
+            fraction = transfer.progress?.fraction
+        }
+        is ModelManager.TransferState.Importing -> {
+            text = stringResource(R.string.chat_model_importing, transfer.modelName)
+            fraction = null
+        }
+        else -> return
+    }
+    Surface(
+        color = colorResource(R.color.brand_local).copy(
+            alpha = integerResource(R.integer.alpha_container_pct) / 100f,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.space_l), vertical = dimensionResource(R.dimen.space_s))) {
+            Text(
+                text,
+                style = MaterialTheme.typography.labelLarge,
+                color = colorResource(R.color.brand_local),
+            )
+            val barModifier = Modifier
+                .fillMaxWidth()
+                .padding(top = dimensionResource(R.dimen.space_xs))
+            if (fraction != null) {
+                LinearProgressIndicator(progress = { fraction }, modifier = barModifier)
+            } else {
+                LinearProgressIndicator(modifier = barModifier)
+            }
         }
     }
 }

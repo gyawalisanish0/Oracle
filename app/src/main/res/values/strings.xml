@@ -49,17 +49,17 @@
     <string name="settings_section_privacy">Privacy</string>
     <string name="settings_section_cloud">Cloud</string>
     <string name="advanced_endpoint_title">Advanced: custom endpoint</string>
-    <string name="advanced_endpoint_summary">Point Domain AI at any OpenAI-compatible /chat/completions API — OpenAI, a local proxy, a gateway, or a paid OpenRouter model.</string>
+    <string name="advanced_endpoint_summary">Point Domain AI at any OpenAI-compatible API.</string>
     <string name="setting_killswitch_title">Network kill switch</string>
-    <string name="setting_killswitch_summary">When on, Domain AI physically cannot make any network request. Fully offline.</string>
+    <string name="setting_killswitch_summary">Blocks all network access — fully offline.</string>
     <string name="setting_consent_title">Allow cloud mode</string>
-    <string name="setting_consent_summary">Explicit consent to ever use the cloud. Required before any message can leave the device.</string>
+    <string name="setting_consent_summary">Required before any message can use the cloud.</string>
     <string name="setting_redact_title">Redact before sending</string>
-    <string name="setting_redact_summary">Strip emails, phone numbers and other identifiers from anything sent to the cloud.</string>
+    <string name="setting_redact_summary">Strips emails, phone numbers and similar before any cloud send.</string>
     <string name="setting_datalog_title">Allow data-logging models</string>
-    <string name="setting_datalog_summary">Some free cloud models (e.g. OpenRouter free tier) may log or train on your prompts. Required — on top of cloud consent — before any such model is used.</string>
+    <string name="setting_datalog_summary">Some free cloud models may log or train on your prompts. Required to use them.</string>
     <string name="setting_crash_title">Send crash reports</string>
-    <string name="setting_crash_summary">Opt in to share crash and error reports (Firebase Crashlytics) so bugs can be fixed. Off by default. Only crashes/errors are sent — no usage analytics or tracking.</string>
+    <string name="setting_crash_summary">Share crash reports to help fix bugs. Off by default; no analytics.</string>
     <string name="setting_base_url">Base URL (OpenAI-compatible)</string>
     <string name="setting_api_key">API key</string>
     <string name="setting_model">Model</string>
@@ -102,22 +102,29 @@
 
     <!-- Diagnostics (debug builds only) -->
     <string name="settings_section_diagnostics">Diagnostics</string>
-    <string name="diagnostics_summary">Capture this app\'s logs (including the on-device model loader) and share them as a text file. Debug builds only.</string>
+    <string name="diagnostics_summary">Share this app\'s logs as a text file. Debug builds only.</string>
     <string name="action_share_diagnostics">Share app logs</string>
 
     <!-- GPU offload + speed benchmark -->
     <string name="setting_gpu_title">GPU acceleration</string>
-    <string name="setting_gpu_summary">Offload model layers to the GPU (Vulkan/OpenCL) when supported. If the GPU can\'t run it, the model loads on the CPU automatically — it never crashes. Most phone GPUs aren\'t faster than the CPU for this, so use Benchmark to check. Changing this reloads the model.</string>
+    <string name="setting_gpu_summary">Offload layers to the GPU when supported; falls back to CPU automatically. Benchmark to compare.</string>
     <string name="action_benchmark">Benchmark speed</string>
     <string name="benchmark_running">Benchmarking…</string>
     <string name="benchmark_result">%1$s tok/s · prefill %2$d ms · %3$d tokens (%4$s)</string>
 
     <!-- Context length (user-configurable) -->
     <string name="setting_context_title">Context length</string>
-    <string name="setting_context_summary">How much of the conversation the model keeps in mind. Larger uses more memory; capped to your device and the model. Changing it reloads the model.</string>
+    <string name="setting_context_summary">How much conversation the model remembers. Larger uses more memory.</string>
     <string name="context_auto_label">Auto (%1$d)</string>
     <string name="context_tokens_label">%1$d tokens</string>
     <string name="cd_context_menu">Choose context length</string>
+
+    <!-- Generation threads (user-configurable) -->
+    <string name="setting_threads_title">Generation threads</string>
+    <string name="setting_threads_summary">CPU cores used to generate replies. More can be faster but warmer.</string>
+    <string name="threads_auto_label">Auto (%1$d)</string>
+    <string name="threads_count_label">%1$d threads</string>
+    <string name="cd_threads_menu">Choose generation threads</string>
 
     <!-- Chat inference quick-panel (bottom-left of the input bar) -->
     <string name="cd_inference_panel">Model &amp; inference settings</string>
@@ -147,9 +154,27 @@
     <string name="model_download_confirm_body">This downloads %1$s (~%2$s) from %3$s. One-time network request — no chat content is sent. Use Import instead to stay fully offline.</string>
     <string name="model_download_confirm_ok">Download</string>
     <string name="model_download_confirm_cancel">Cancel</string>
+    <string name="model_importing">Importing %1$s…</string>
+    <string name="model_transfer_failed">Couldn\'t get %1$s: %2$s</string>
+    <string name="model_transfer_dismiss">Dismiss</string>
 
-    <!-- Chat model-loading banner -->
+    <!-- Error / status messages surfaced from non-UI layers -->
+    <string name="model_import_failed">Import failed.</string>
+    <string name="model_load_failed">Could not load model.</string>
+    <string name="model_all_mirrors_failed">All %1$d mirrors failed. %2$s</string>
+    <string name="model_gguf_invalid_download">Downloaded file is not a valid GGUF model.</string>
+    <string name="model_finalize_download_failed">Could not finalize downloaded model.</string>
+    <string name="model_gguf_invalid_import">Not a valid GGUF model file.</string>
+    <string name="model_finalize_import_failed">Could not finalize imported model.</string>
+    <string name="provider_validate_failed">Couldn\'t validate the connection.</string>
+    <string name="openrouter_unreachable">Could not reach OpenRouter.</string>
+    <string name="reply_stopped">Stopped.</string>
+    <string name="reply_request_failed">Request failed (%1$s). Partial reply shown.</string>
+
+    <!-- Chat model-loading / acquisition banners -->
     <string name="chat_model_loading">Loading on-device model…</string>
+    <string name="chat_model_downloading">Downloading %1$s — %2$d%%</string>
+    <string name="chat_model_importing">Importing %1$s…</string>
 
     <!-- Reasoning (chain-of-thought) section for reasoning models -->
     <string name="reasoning_label">Reasoning</string>
@@ -163,15 +188,17 @@
     <string name="provider_invalid">Couldn\'t validate: %1$s</string>
     <string name="provider_locked_hint">To switch provider or model, delete the current API key first.</string>
 
-    <!-- Download progress notification -->
-    <string name="notif_channel_name">Model downloads</string>
+    <!-- On-device work notification (download + background generation) -->
+    <string name="notif_channel_name">On-device activity</string>
     <string name="notif_downloading">Downloading %1$s</string>
     <string name="notif_complete">%1$s is ready</string>
     <string name="notif_failed">Model download failed</string>
+    <string name="notif_generating">Generating reply…</string>
+    <string name="notif_working">Working…</string>
 
     <!-- OpenRouter free models -->
     <string name="settings_section_openrouter">OpenRouter free models</string>
-    <string name="openrouter_hint">Free models need a free OpenRouter API key. They may log your prompts — enable \"Allow data-logging models\" above to use them.</string>
+    <string name="openrouter_hint">Needs a free OpenRouter key; may log prompts — enable \"Allow data-logging models\" above.</string>
     <string name="openrouter_key_label">OpenRouter API key</string>
     <string name="openrouter_fetch">Fetch free models</string>
     <string name="openrouter_loading">Fetching free models…</string>

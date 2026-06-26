@@ -21,6 +21,50 @@ class DeviceCapabilities(context: Context) {
 
     val isLowRam: Boolean = activityManager.isLowRamDevice
 
+    private val cpuProfile = computeCpuProfile()
+
+    /**
+     * Device-adaptive **Auto** thread count, probed **once** at startup (CPU topology
+     * is fixed). A deliberate **middle ground**: roughly **half** the cores, so
+     * generation gets a solid share of the CPU while the rest stays free for the UI
+     * and system. Bounded to `2..6`. On an 8-core phone this yields 4; smaller CPUs
+     * scale down. The user can raise it (up to [maxThreads]) in Settings / the chat
+     * quick-panel.
+     */
+    val recommendedThreads: Int = cpuProfile.first
+
+    /** Largest thread count the user may select on this device: `2..min(6, cores)`. */
+    val maxThreads: Int = minOf(6, Runtime.getRuntime().availableProcessors()).coerceAtLeast(2)
+
+    /**
+     * All core indices ordered **fastest first** (empty if `/sys` is unreadable). The
+     * inference threadpool pins to the first `effectiveThreads` of these, so picking a
+     * smaller thread count naturally keeps generation on the primary/big cores.
+     * Pinning is best-effort — Android's cpuset/EAS scheduler may override it.
+     */
+    val coresBySpeed: IntArray = cpuProfile.second
+
+    private fun computeCpuProfile(): Pair<Int, IntArray> {
+        val total = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+        val freqs: List<Long?> = (0 until total).map { cpu ->
+            runCatching {
+                java.io.File("/sys/devices/system/cpu/cpu$cpu/cpufreq/cpuinfo_max_freq")
+                    .readText().trim().toLong()
+            }.getOrNull()
+        }
+        val haveFreqs = freqs.all { it != null }
+        // Auto = a middle-ground count: about half the cores, so generation gets a
+        // solid share of the CPU while the rest stays free for the UI/system. Bounded
+        // to 2..6 (an 8-core phone lands on 4; the user can raise it in Settings).
+        val threads = (total / 2).coerceIn(2, minOf(total, 6))
+        val sorted = if (haveFreqs) {
+            (0 until total).sortedByDescending { freqs[it]!! }.toIntArray()
+        } else {
+            IntArray(0)
+        }
+        return threads to sorted
+    }
+
     /**
      * Classify a model needing [minRamMb] against this device. A comfortable run
      * wants noticeable headroom over the model's working set, so "recommended"

@@ -1,11 +1,14 @@
 package sg.act.domain.data.repository
 
+import android.content.Context
+import sg.act.domain.R
 import sg.act.domain.data.local.ConversationStore
 import sg.act.domain.data.local.RemoteConfigStore
 import sg.act.domain.data.local.SelectionStore
 import sg.act.domain.data.model.Conversation
 import sg.act.domain.data.model.Message
 import sg.act.domain.data.model.Role
+import sg.act.domain.data.model.Route
 import sg.act.domain.inference.InferenceEngine
 import sg.act.domain.inference.LocalEngine
 import sg.act.domain.inference.PrivacyRouter
@@ -31,6 +34,7 @@ import kotlinx.coroutines.withContext
  * exposing the active one plus the ordered list for the history drawer.
  */
 class ChatRepository(
+    private val context: Context,
     val privacySettings: PrivacySettings,
     private val conversationStore: ConversationStore,
     private val remoteConfigStore: RemoteConfigStore,
@@ -156,6 +160,17 @@ class ChatRepository(
 
         val builder = StringBuilder()
         var errorNote: String? = null
+        // On-device generation is CPU-heavy and can outlast a glance away from the
+        // app, so run it under a foreground service: the process keeps generating in
+        // the background instead of being killed mid-reply. Cloud turns are
+        // network-bound and quick, so they don't need it.
+        val foreground = outcome.route == Route.LOCAL
+        if (foreground) {
+            sg.act.domain.core.ForegroundWork.begin(
+                context,
+                context.getString(R.string.notif_generating),
+            )
+        }
         try {
             outcome.tokens.collect { delta ->
                 builder.append(delta)
@@ -164,11 +179,16 @@ class ChatRepository(
         } catch (e: CancellationException) {
             // User pressed Stop. Keep the partial reply and persist it before the
             // coroutine unwinds, then propagate the cancellation.
-            finalizeReply(stripLeadingNameLabel(builder.toString()), outcome.note ?: "Stopped.")
+            finalizeReply(
+                stripLeadingNameLabel(builder.toString()),
+                outcome.note ?: context.getString(R.string.reply_stopped),
+            )
             throw e
         } catch (e: Exception) {
-            errorNote = "Request failed (${e.message}). Partial reply shown."
+            errorNote = context.getString(R.string.reply_request_failed, e.message ?: "")
             sg.act.domain.core.CrashReporting.record(e)
+        } finally {
+            if (foreground) sg.act.domain.core.ForegroundWork.end(context)
         }
 
         finalizeReply(stripLeadingNameLabel(builder.toString()), outcome.note ?: errorNote)

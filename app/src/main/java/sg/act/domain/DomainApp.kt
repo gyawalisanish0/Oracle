@@ -2,7 +2,7 @@ package sg.act.domain
 
 import android.app.Application
 import sg.act.domain.core.CrashReporting
-import sg.act.domain.core.DownloadNotifier
+import sg.act.domain.core.ForegroundWork
 import sg.act.domain.data.local.AcceptanceStore
 import sg.act.domain.data.local.ConversationStore
 import sg.act.domain.data.local.ModelStorage
@@ -14,6 +14,7 @@ import sg.act.domain.inference.ContextSettings
 import sg.act.domain.inference.GpuGuard
 import sg.act.domain.inference.LocalEngine
 import sg.act.domain.inference.ModelManager
+import sg.act.domain.inference.ThreadSettings
 import sg.act.domain.privacy.DeviceCapabilities
 import sg.act.domain.privacy.PrivacySettings
 import kotlinx.coroutines.CoroutineScope
@@ -45,18 +46,24 @@ class AppContainer(app: DomainApp) {
     val deviceCapabilities = DeviceCapabilities(app)
 
     val modelManager = ModelManager(
+        context = app,
         modelStore = ModelStore(app),
         modelStorage = ModelStorage(app),
         scope = appScope,
         deviceRecommendedContext = deviceCapabilities.recommendedContextTokens(),
         deviceMaxContext = deviceCapabilities.maxAllowedContextTokens(),
+        deviceAutoThreads = deviceCapabilities.recommendedThreads,
+        deviceMaxThreads = deviceCapabilities.maxThreads,
+        coresBySpeed = deviceCapabilities.coresBySpeed,
         contextSettings = ContextSettings(app),
+        threadSettings = ThreadSettings(app),
         gpuGuard = GpuGuard(app),
         nativeLibDir = app.applicationInfo.nativeLibraryDir,
         sdkInt = android.os.Build.VERSION.SDK_INT,
     )
 
     val repository: ChatRepository = ChatRepository(
+        context = app,
         privacySettings = PrivacySettings(app),
         conversationStore = ConversationStore(app),
         remoteConfigStore = RemoteConfigStore(app),
@@ -82,9 +89,11 @@ class AppContainer(app: DomainApp) {
         }
     }
 
-    private val downloadNotifier = DownloadNotifier(app)
-
     init {
+        // Swipe-away from recents cancels in-flight background work. Generation on the
+        // UI scope dies with the Activity; this covers a download on the app scope.
+        ForegroundWork.onStopRequested = { modelManager.cancelDownload() }
+
         // Re-load the previously active on-device model, off the main thread.
         appScope.launch { modelManager.loadActiveModelIfPresent() }
 
@@ -95,29 +104,55 @@ class AppContainer(app: DomainApp) {
             repository.privacyState.collect { CrashReporting.setEnabled(it.crashReportingEnabled) }
         }
 
-        // Drive the download progress notification. Gated on `downloading` so the
-        // startup model-load (which is also a Loading→Ready transition) never posts.
+        // Drive the download/import foreground service off the transfer lifecycle,
+        // then the in-memory load that follows it. The service spans the whole
+        // acquire-then-load sequence (one begin, one end), so the process keeps the
+        // download alive in the background. Gated on `transferring`/`loading` so a
+        // plain model switch or the startup load (state-only, no transfer) never posts.
         appScope.launch {
-            var downloading = false
-            combine(modelManager.state, modelManager.downloadProgress) { s, p -> s to p }
-                .collect { (state, progress) ->
-                    when {
-                        progress != null -> {
-                            downloading = true
-                            val name = (state as? ModelManager.State.Loading)?.modelName
-                                ?: app.getString(R.string.app_name)
-                            downloadNotifier.progress(name, progress.fraction)
+            var transferring = false // a user download/import is in flight
+            var loading = false      // the post-transfer in-memory load has begun
+            combine(modelManager.state, modelManager.transfer) { s, t -> s to t }
+                .collect { (state, transfer) ->
+                    when (transfer) {
+                        is ModelManager.TransferState.Downloading -> {
+                            val text = app.getString(R.string.notif_downloading, transfer.modelName)
+                            if (!transferring) {
+                                transferring = true
+                                ForegroundWork.begin(app, text)
+                            }
+                            val pct = ((transfer.progress?.fraction ?: 0f) * 100).toInt()
+                            ForegroundWork.update(app, text, pct)
                         }
-                        !downloading -> Unit // not our download; ignore startup loads
-                        state is ModelManager.State.Loading ->
-                            downloadNotifier.indeterminate(app.getString(R.string.model_initializing))
-                        state is ModelManager.State.Ready -> {
-                            downloadNotifier.complete(state.modelName); downloading = false
+                        is ModelManager.TransferState.Importing -> {
+                            if (!transferring) {
+                                transferring = true
+                                ForegroundWork.begin(app, app.getString(R.string.model_initializing))
+                            }
                         }
-                        state is ModelManager.State.Error -> {
-                            downloadNotifier.failed(); downloading = false
+                        is ModelManager.TransferState.Failed -> {
+                            if (transferring) ForegroundWork.end(app)
+                            ForegroundWork.failed(app, app.getString(R.string.notif_failed))
+                            transferring = false; loading = false
                         }
-                        else -> downloading = false
+                        ModelManager.TransferState.Idle -> when {
+                            !transferring -> Unit // not our transfer; ignore startup/switch loads
+                            state is ModelManager.State.Loading -> {
+                                loading = true
+                                ForegroundWork.update(app, app.getString(R.string.model_initializing))
+                            }
+                            state is ModelManager.State.Ready && loading -> {
+                                ForegroundWork.end(app)
+                                ForegroundWork.complete(app, app.getString(R.string.notif_complete, state.modelName))
+                                transferring = false; loading = false
+                            }
+                            state is ModelManager.State.Error && loading -> {
+                                ForegroundWork.end(app)
+                                ForegroundWork.failed(app, app.getString(R.string.notif_failed))
+                                transferring = false; loading = false
+                            }
+                            else -> Unit
+                        }
                     }
                 }
         }
