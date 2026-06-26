@@ -49,17 +49,17 @@
     <string name="settings_section_privacy">Privacy</string>
     <string name="settings_section_cloud">Cloud</string>
     <string name="advanced_endpoint_title">Advanced: custom endpoint</string>
-    <string name="advanced_endpoint_summary">Point Domain AI at any OpenAI-compatible /chat/completions API — OpenAI, a local proxy, a gateway, or a paid OpenRouter model.</string>
+    <string name="advanced_endpoint_summary">Point Domain AI at any OpenAI-compatible API.</string>
     <string name="setting_killswitch_title">Network kill switch</string>
-    <string name="setting_killswitch_summary">When on, Domain AI physically cannot make any network request. Fully offline.</string>
+    <string name="setting_killswitch_summary">Blocks all network access — fully offline.</string>
     <string name="setting_consent_title">Allow cloud mode</string>
-    <string name="setting_consent_summary">Explicit consent to ever use the cloud. Required before any message can leave the device.</string>
+    <string name="setting_consent_summary">Required before any message can use the cloud.</string>
     <string name="setting_redact_title">Redact before sending</string>
-    <string name="setting_redact_summary">Strip emails, phone numbers and other identifiers from anything sent to the cloud.</string>
+    <string name="setting_redact_summary">Strips emails, phone numbers and similar before any cloud send.</string>
     <string name="setting_datalog_title">Allow data-logging models</string>
-    <string name="setting_datalog_summary">Some free cloud models (e.g. OpenRouter free tier) may log or train on your prompts. Required — on top of cloud consent — before any such model is used.</string>
+    <string name="setting_datalog_summary">Some free cloud models may log or train on your prompts. Required to use them.</string>
     <string name="setting_crash_title">Send crash reports</string>
-    <string name="setting_crash_summary">Opt in to share crash and error reports (Firebase Crashlytics) so bugs can be fixed. Off by default. Only crashes/errors are sent — no usage analytics or tracking.</string>
+    <string name="setting_crash_summary">Share crash reports to help fix bugs. Off by default; no analytics.</string>
     <string name="setting_base_url">Base URL (OpenAI-compatible)</string>
     <string name="setting_api_key">API key</string>
     <string name="setting_model">Model</string>
@@ -102,7 +102,7 @@
 
     <!-- Diagnostics (debug builds only) -->
     <string name="settings_section_diagnostics">Diagnostics</string>
-    <string name="diagnostics_summary">Capture this app\'s logs (including the on-device model loader) and share them as a text file. Debug builds only.</string>
+    <string name="diagnostics_summary">Share this app\'s logs as a text file. Debug builds only.</string>
     <string name="action_share_diagnostics">Share app logs</string>
 
     <!-- GPU offload + speed benchmark -->
@@ -198,7 +198,7 @@
 
     <!-- OpenRouter free models -->
     <string name="settings_section_openrouter">OpenRouter free models</string>
-    <string name="openrouter_hint">Free models need a free OpenRouter API key. They may log your prompts — enable \"Allow data-logging models\" above to use them.</string>
+    <string name="openrouter_hint">Needs a free OpenRouter key; may log prompts — enable \"Allow data-logging models\" above.</string>
     <string name="openrouter_key_label">OpenRouter API key</string>
     <string name="openrouter_fetch">Fetch free models</string>
     <string name="openrouter_loading">Fetching free models…</string>
