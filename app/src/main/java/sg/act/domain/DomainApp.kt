@@ -2,7 +2,7 @@ package sg.act.domain
 
 import android.app.Application
 import sg.act.domain.core.CrashReporting
-import sg.act.domain.core.DownloadNotifier
+import sg.act.domain.core.ForegroundWork
 import sg.act.domain.data.local.AcceptanceStore
 import sg.act.domain.data.local.ConversationStore
 import sg.act.domain.data.local.ModelStorage
@@ -89,9 +89,11 @@ class AppContainer(app: DomainApp) {
         }
     }
 
-    private val downloadNotifier = DownloadNotifier(app)
-
     init {
+        // Swipe-away from recents cancels in-flight background work. Generation on the
+        // UI scope dies with the Activity; this covers a download on the app scope.
+        ForegroundWork.onStopRequested = { modelManager.cancelDownload() }
+
         // Re-load the previously active on-device model, off the main thread.
         appScope.launch { modelManager.loadActiveModelIfPresent() }
 
@@ -102,8 +104,10 @@ class AppContainer(app: DomainApp) {
             repository.privacyState.collect { CrashReporting.setEnabled(it.crashReportingEnabled) }
         }
 
-        // Drive the download/import notification off the transfer lifecycle, then
-        // the in-memory load that follows it. Gated on `transferring`/`loading` so a
+        // Drive the download/import foreground service off the transfer lifecycle,
+        // then the in-memory load that follows it. The service spans the whole
+        // acquire-then-load sequence (one begin, one end), so the process keeps the
+        // download alive in the background. Gated on `transferring`/`loading` so a
         // plain model switch or the startup load (state-only, no transfer) never posts.
         appScope.launch {
             var transferring = false // a user download/import is in flight
@@ -112,27 +116,40 @@ class AppContainer(app: DomainApp) {
                 .collect { (state, transfer) ->
                     when (transfer) {
                         is ModelManager.TransferState.Downloading -> {
-                            transferring = true
-                            downloadNotifier.progress(transfer.modelName, transfer.progress?.fraction ?: 0f)
+                            val text = app.getString(R.string.notif_downloading, transfer.modelName)
+                            if (!transferring) {
+                                transferring = true
+                                ForegroundWork.begin(app, text)
+                            }
+                            val pct = ((transfer.progress?.fraction ?: 0f) * 100).toInt()
+                            ForegroundWork.update(app, text, pct)
                         }
                         is ModelManager.TransferState.Importing -> {
-                            transferring = true
-                            downloadNotifier.indeterminate(app.getString(R.string.model_initializing))
+                            if (!transferring) {
+                                transferring = true
+                                ForegroundWork.begin(app, app.getString(R.string.model_initializing))
+                            }
                         }
                         is ModelManager.TransferState.Failed -> {
-                            downloadNotifier.failed(); transferring = false; loading = false
+                            if (transferring) ForegroundWork.end(app)
+                            ForegroundWork.failed(app, app.getString(R.string.notif_failed))
+                            transferring = false; loading = false
                         }
                         ModelManager.TransferState.Idle -> when {
                             !transferring -> Unit // not our transfer; ignore startup/switch loads
                             state is ModelManager.State.Loading -> {
                                 loading = true
-                                downloadNotifier.indeterminate(app.getString(R.string.model_initializing))
+                                ForegroundWork.update(app, app.getString(R.string.model_initializing))
                             }
                             state is ModelManager.State.Ready && loading -> {
-                                downloadNotifier.complete(state.modelName); transferring = false; loading = false
+                                ForegroundWork.end(app)
+                                ForegroundWork.complete(app, app.getString(R.string.notif_complete, state.modelName))
+                                transferring = false; loading = false
                             }
                             state is ModelManager.State.Error && loading -> {
-                                downloadNotifier.failed(); transferring = false; loading = false
+                                ForegroundWork.end(app)
+                                ForegroundWork.failed(app, app.getString(R.string.notif_failed))
+                                transferring = false; loading = false
                             }
                             else -> Unit
                         }

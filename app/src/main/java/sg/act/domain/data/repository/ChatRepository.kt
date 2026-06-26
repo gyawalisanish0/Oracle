@@ -8,6 +8,7 @@ import sg.act.domain.data.local.SelectionStore
 import sg.act.domain.data.model.Conversation
 import sg.act.domain.data.model.Message
 import sg.act.domain.data.model.Role
+import sg.act.domain.data.model.Route
 import sg.act.domain.inference.InferenceEngine
 import sg.act.domain.inference.LocalEngine
 import sg.act.domain.inference.PrivacyRouter
@@ -159,6 +160,17 @@ class ChatRepository(
 
         val builder = StringBuilder()
         var errorNote: String? = null
+        // On-device generation is CPU-heavy and can outlast a glance away from the
+        // app, so run it under a foreground service: the process keeps generating in
+        // the background instead of being killed mid-reply. Cloud turns are
+        // network-bound and quick, so they don't need it.
+        val foreground = outcome.route == Route.LOCAL
+        if (foreground) {
+            sg.act.domain.core.ForegroundWork.begin(
+                context,
+                context.getString(R.string.notif_generating),
+            )
+        }
         try {
             outcome.tokens.collect { delta ->
                 builder.append(delta)
@@ -175,6 +187,8 @@ class ChatRepository(
         } catch (e: Exception) {
             errorNote = context.getString(R.string.reply_request_failed, e.message ?: "")
             sg.act.domain.core.CrashReporting.record(e)
+        } finally {
+            if (foreground) sg.act.domain.core.ForegroundWork.end(context)
         }
 
         finalizeReply(stripLeadingNameLabel(builder.toString()), outcome.note ?: errorNote)

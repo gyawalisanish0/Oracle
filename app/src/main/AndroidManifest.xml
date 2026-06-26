@@ -10,8 +10,16 @@
     -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- For the on-device model download progress notification (Android 13+). -->
+    <!-- For the on-device work notification (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      Keeps the process at foreground priority while on-device work (a reply
+      generation or a model download) is in flight, so a long background job isn't
+      killed mid-way. "Special use" because on-device LLM compute fits none of the
+      predefined Android 14 foreground-service types. See core/InferenceService.kt.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:name=".DomainApp"
@@ -43,6 +51,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".core.InferenceService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="on_device_llm_inference_and_model_download" />
+        </service>
     </application>
 
 </manifest>

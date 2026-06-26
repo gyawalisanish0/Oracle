@@ -188,11 +188,13 @@
     <string name="provider_invalid">Couldn\'t validate: %1$s</string>
     <string name="provider_locked_hint">To switch provider or model, delete the current API key first.</string>
 
-    <!-- Download progress notification -->
-    <string name="notif_channel_name">Model downloads</string>
+    <!-- On-device work notification (download + background generation) -->
+    <string name="notif_channel_name">On-device activity</string>
     <string name="notif_downloading">Downloading %1$s</string>
     <string name="notif_complete">%1$s is ready</string>
     <string name="notif_failed">Model download failed</string>
+    <string name="notif_generating">Generating reply…</string>
+    <string name="notif_working">Working…</string>
 
     <!-- OpenRouter free models -->
     <string name="settings_section_openrouter">OpenRouter free models</string>
