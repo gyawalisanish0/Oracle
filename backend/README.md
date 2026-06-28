@@ -35,10 +35,11 @@ Android app  ──►  SPACE_TOKEN auth  ──►  FastAPI  ──►  llama-c
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `GET` | `/health` | none | Liveness + capabilities |
-| `GET` | `/v1/models` | token | Lists the loaded model in OpenAI format |
-| `POST` | `/v1/admin/load` | token | Download and (re-)load a GGUF model |
-| `POST` | `/v1/chat/completions` | token | Streaming & non-streaming chat |
+| `GET` | `/health` | none | Liveness + loaded model + capabilities (RAM, cores, N_BATCH tier) |
+| `GET` | `/v1/models` | token | Loaded model in OpenAI list format |
+| `GET` | `/v1/catalog` | token | Curated GGUF catalog with RAM suitability ratings and `cached` flag |
+| `POST` | `/v1/admin/load` | token | Download (if not cached) and load a model; streams SSE progress |
+| `POST` | `/v1/chat/completions` | token | Streaming and non-streaming chat completions |
 
 ## Deploying to Hugging Face Spaces
 
@@ -64,13 +65,29 @@ Android app  ──►  SPACE_TOKEN auth  ──►  FastAPI  ──►  llama-c
 
 ## Configuring the Android app
 
-In **Domain AI → Settings → Advanced: custom endpoint**:
+### Using the Space model picker (recommended)
+
+In **Domain AI → Settings → Cloud → Space backend**:
+
+| Field | Value |
+|-------|-------|
+| Space URL | `https://<your-username>-domain-ai-backend.hf.space` |
+| Space token | The value you set for `SPACE_TOKEN` |
+
+Tap **Connect** to verify the link, then browse the curated catalog with hardware
+suitability ratings. Tap **Load** on any model to trigger an on-Space download with
+live percentage progress — the model activates automatically when ready.
+
+### Using the advanced custom endpoint (alternative)
+
+If you want to point at a model already loaded in the Space, use
+**Settings → Advanced: custom endpoint**:
 
 | Field | Value |
 |-------|-------|
 | Base URL | `https://<your-username>-domain-ai-backend.hf.space/v1` |
 | API key | The value you set for `SPACE_TOKEN` |
-| Model | The same model label shown in `/health` (e.g. `Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf`) |
+| Model | The model label shown in `/health` (e.g. `Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf`) |
 
 ## Running locally
 
