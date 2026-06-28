@@ -207,4 +207,15 @@
     <string name="openrouter_logs_tag">logs data</string>
     <string name="openrouter_ctx">%1$dk ctx</string>
     <string name="openrouter_active">Active cloud model: %1$s</string>
+
+    <!-- Hugging Face Inference API -->
+    <string name="settings_section_huggingface">Hugging Face models</string>
+    <string name="hf_hint">Needs a Hugging Face API token. Uses the HF Serverless Inference API — prompts are not logged on paid accounts.</string>
+    <string name="hf_key_label">HF API token</string>
+    <string name="hf_fetch">Fetch models</string>
+    <string name="hf_loading">Fetching models…</string>
+    <string name="hf_empty">No models loaded yet — tap "Fetch models".</string>
+    <string name="hf_use">Use</string>
+    <string name="hf_downloads">%1$dk downloads</string>
+    <string name="hf_unreachable">Could not reach Hugging Face.</string>
 </resources>

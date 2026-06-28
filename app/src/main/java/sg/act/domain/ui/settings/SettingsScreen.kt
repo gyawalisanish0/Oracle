@@ -64,6 +64,7 @@ import sg.act.domain.core.Diagnostics
 import sg.act.domain.inference.ModelDownloader
 import sg.act.domain.inference.ModelManager
 import sg.act.domain.inference.ModelSpec
+import sg.act.domain.inference.HuggingFaceClient
 import sg.act.domain.inference.OpenRouterClient
 import sg.act.domain.privacy.DeviceCapabilities
 import sg.act.domain.ui.components.ContextLengthRow
@@ -185,6 +186,8 @@ fun SettingsScreen(
                 state = state,
                 onFetch = viewModel::fetchOpenRouterModels,
                 onSelect = viewModel::selectOpenRouterModel,
+                onFetchHf = viewModel::fetchHuggingFaceModels,
+                onSelectHf = viewModel::selectHuggingFaceModel,
                 onSaveManual = viewModel::saveProvider,
                 onDelete = viewModel::clearProvider,
             )
@@ -254,6 +257,8 @@ private fun CloudSection(
     state: SettingsUiState,
     onFetch: (String) -> Unit,
     onSelect: (String, OpenRouterClient.FreeModel) -> Unit,
+    onFetchHf: (String) -> Unit,
+    onSelectHf: (String, HuggingFaceClient.HfModel) -> Unit,
     onSaveManual: (String, String, String) -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -284,6 +289,8 @@ private fun CloudSection(
         if (state.hasProvider) {
             ActiveProviderCard(modelId = state.activeModelId, onDelete = onDelete)
         } else {
+            HuggingFaceSection(state = state, onFetch = onFetchHf, onSelect = onSelectHf)
+            HorizontalDivider(modifier = Modifier.padding(vertical = dimensionResource(R.dimen.space_xs)))
             OpenRouterSection(state = state, onFetch = onFetch, onSelect = onSelect)
             AdvancedProviderSection(onSave = onSaveManual)
         }
@@ -861,6 +868,106 @@ private fun OpenRouterRow(
         }
         Button(onClick = onUse, enabled = enabled && !active) {
             Text(stringResource(R.string.openrouter_use))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Hugging Face section
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun HuggingFaceSection(
+    state: SettingsUiState,
+    onFetch: (String) -> Unit,
+    onSelect: (String, HuggingFaceClient.HfModel) -> Unit,
+) {
+    var apiKey by remember { mutableStateOf("") }
+
+    Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_s))) {
+        Text(
+            stringResource(R.string.settings_section_huggingface),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            stringResource(R.string.hf_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = apiKey,
+            onValueChange = { apiKey = it },
+            label = { Text(stringResource(R.string.hf_key_label)) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_s)),
+        ) {
+            Button(
+                onClick = { onFetch(apiKey) },
+                enabled = apiKey.isNotBlank() && !state.hfLoading,
+            ) {
+                Text(stringResource(R.string.hf_fetch))
+            }
+            if (state.hfLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(dimensionResource(R.dimen.icon_progress)),
+                    strokeWidth = dimensionResource(R.dimen.stroke_thin),
+                )
+                Text(
+                    stringResource(R.string.hf_loading),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
+        state.hfError?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = colorResource(R.color.brand_blocked))
+        }
+        if (state.hfModels.isEmpty() && !state.hfLoading) {
+            Text(
+                stringResource(R.string.hf_empty),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        for (model in state.hfModels) {
+            HuggingFaceModelRow(
+                model = model,
+                active = model.id == state.activeModelId,
+                enabled = !state.providerValidating,
+                onUse = { onSelect(apiKey, model) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun HuggingFaceModelRow(
+    model: HuggingFaceClient.HfModel,
+    active: Boolean,
+    enabled: Boolean,
+    onUse: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_s)),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(model.name, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                stringResource(R.string.hf_downloads, model.downloads / 1000),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Button(onClick = onUse, enabled = enabled && !active) {
+            Text(stringResource(R.string.hf_use))
         }
     }
 }

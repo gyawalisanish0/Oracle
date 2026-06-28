@@ -12,6 +12,7 @@ import sg.act.domain.inference.InstalledModel
 import sg.act.domain.inference.ModelCatalog
 import sg.act.domain.inference.ModelManager
 import sg.act.domain.inference.ModelSpec
+import sg.act.domain.inference.HuggingFaceClient
 import sg.act.domain.inference.OpenRouterClient
 import sg.act.domain.inference.RemoteEngine
 import sg.act.domain.privacy.DeviceCapabilities
@@ -54,6 +55,10 @@ data class SettingsUiState(
     val openRouterLoading: Boolean = false,
     val openRouterError: String? = null,
     val activeModelId: String? = null,
+    // Hugging Face model picker
+    val hfModels: List<HuggingFaceClient.HfModel> = emptyList(),
+    val hfLoading: Boolean = false,
+    val hfError: String? = null,
     // Provider validation (round-trip check before saving)
     val providerValidating: Boolean = false,
     val providerError: String? = null,
@@ -65,6 +70,7 @@ class SettingsViewModel(
     private val modelManager: ModelManager,
     deviceCapabilities: DeviceCapabilities,
     private val openRouter: OpenRouterClient = OpenRouterClient(),
+    private val hfClient: HuggingFaceClient = HuggingFaceClient(),
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(
@@ -169,6 +175,33 @@ class SettingsViewModel(
             )
         }
     }
+
+    /** Fetch inference-ready text-generation models from Hugging Face Hub. */
+    fun fetchHuggingFaceModels(apiKey: String) = viewModelScope.launch {
+        _ui.value = _ui.value.copy(hfLoading = true, hfError = null)
+        try {
+            val models = hfClient.fetchModels(apiKey.trim().ifBlank { null })
+            _ui.value = _ui.value.copy(hfModels = models, hfLoading = false)
+        } catch (e: Exception) {
+            _ui.value = _ui.value.copy(
+                hfLoading = false,
+                hfError = e.message ?: application.getString(R.string.hf_unreachable),
+            )
+        }
+    }
+
+    /** Validate and save a chosen HF model as the active cloud provider. */
+    fun selectHuggingFaceModel(apiKey: String, model: HuggingFaceClient.HfModel) =
+        viewModelScope.launch {
+            validateAndSave(
+                RemoteEngine.Config(
+                    baseUrl = HuggingFaceClient.INFERENCE_BASE_URL,
+                    apiKey = apiKey.trim(),
+                    model = model.id,
+                    logsData = false,
+                ),
+            )
+        }
 
     /** Validate and save a chosen free OpenRouter model as the active cloud provider. */
     fun selectOpenRouterModel(apiKey: String, model: OpenRouterClient.FreeModel) =
