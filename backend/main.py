@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Domain AI Backend", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Domain AI Backend", version="0.33", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
