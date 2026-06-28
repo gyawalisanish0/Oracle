@@ -55,6 +55,7 @@ class AppContainer(app: DomainApp) {
         deviceAutoThreads = deviceCapabilities.recommendedThreads,
         deviceMaxThreads = deviceCapabilities.maxThreads,
         coresBySpeed = deviceCapabilities.coresBySpeed,
+        deviceRecommendedBatchSize = deviceCapabilities.recommendedBatchSize(),
         contextSettings = ContextSettings(app),
         threadSettings = ThreadSettings(app),
         gpuGuard = GpuGuard(app),
