@@ -100,6 +100,8 @@ async def health():
     return {
         "status": "ok",
         "model_loaded": engine.loaded,
+        "loading_in_progress": engine.loading,
+        "load_error": engine.load_error,
         "model": engine.model_label,
         "capabilities": system_info(),
     }

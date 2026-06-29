@@ -189,19 +189,7 @@ class SettingsViewModel(
         _ui.value = _ui.value.copy(providerValidating = true, providerError = null)
         val result = repository.validateProvider(config)
         if (result.isSuccess) {
-            repository.saveRemoteConfig(config)
-            val profile = ModelProfile(
-                id = java.util.UUID.randomUUID().toString(),
-                name = name,
-                type = type,
-                baseUrl = config.baseUrl,
-                apiKey = config.apiKey,
-                model = config.model,
-                logsData = config.logsData,
-            )
-            profileStore.upsertProfile(profile)
-            profileStore.setActiveProfileId(profile.id)
-            repository.setPreferCloud(true)
+            persistProfile(config, type, name)
             _ui.value = _ui.value.copy(providerValidating = false)
         } else {
             _ui.value = _ui.value.copy(
@@ -210,6 +198,27 @@ class SettingsViewModel(
                     ?: application.getString(R.string.provider_validate_failed),
             )
         }
+    }
+
+    /** Save a profile directly without a validation round-trip (Space SSE already confirmed ready). */
+    private suspend fun saveProfileDirect(config: RemoteEngine.Config, type: ProviderType, name: String) {
+        persistProfile(config, type, name)
+    }
+
+    private suspend fun persistProfile(config: RemoteEngine.Config, type: ProviderType, name: String) {
+        repository.saveRemoteConfig(config)
+        val profile = ModelProfile(
+            id = java.util.UUID.randomUUID().toString(),
+            name = name,
+            type = type,
+            baseUrl = config.baseUrl,
+            apiKey = config.apiKey,
+            model = config.model,
+            logsData = config.logsData,
+        )
+        profileStore.upsertProfile(profile)
+        profileStore.setActiveProfileId(profile.id)
+        repository.setPreferCloud(true)
     }
 
     /** Fetch OpenRouter's currently-free chat models into the picker; persists the key. */
@@ -259,10 +268,14 @@ class SettingsViewModel(
     fun connectSpace(url: String, token: String) = viewModelScope.launch {
         val trimUrl = url.trim(); val trimToken = token.trim()
         _ui.value = _ui.value.copy(spaceConnecting = true, spaceError = null)
-        val ok = spaceClient.checkHealth(trimUrl, trimToken)
-        if (ok) {
+        val health = spaceClient.fetchHealth(trimUrl, trimToken)
+        if (health.reachable) {
             profileStore.saveSpaceCredentials(trimUrl, trimToken)
             val preview = trimUrl.removePrefix("https://").removePrefix("http://").substringBefore('/')
+            val loadingNote = if (health.loadingInProgress)
+                application.getString(R.string.space_loading_in_progress)
+            else
+                health.loadError?.let { application.getString(R.string.space_prev_load_error, it) }
             _ui.value = _ui.value.copy(
                 spaceCredentialsSaved = true,
                 spaceUrlPreview = preview,
@@ -270,6 +283,7 @@ class SettingsViewModel(
                 spaceToken = trimToken,
                 spaceConnecting = false,
                 spaceConnected = true,
+                spaceError = loadingNote,
             )
             loadSpaceCatalog()
         } else {
@@ -336,8 +350,11 @@ class SettingsViewModel(
             }
         }
 
+        // The SSE "ready" event already confirms the model loaded — skip the completion
+        // round-trip that validateAndSave() would do (first inference after load is slow
+        // and often hits the timeout, giving a misleading "Couldn't validate" error).
         readyModel?.let { label ->
-            validateAndSave(
+            saveProfileDirect(
                 RemoteEngine.Config(
                     baseUrl = "$url/v1",
                     apiKey = token,

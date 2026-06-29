@@ -225,6 +225,8 @@
     <string name="space_model_cached">Cached</string>
     <string name="space_size">~%1$d MB</string>
     <string name="space_unreachable">Could not reach the Space.</string>
+    <string name="space_loading_in_progress">Space is loading a model — use Load to track progress.</string>
+    <string name="space_prev_load_error">Previous load failed: %1$s</string>
     <string name="space_connected_to">Connected: %1$s</string>
     <string name="space_change">Change</string>
     <string name="space_disconnect">Disconnect</string>

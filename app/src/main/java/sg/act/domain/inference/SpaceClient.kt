@@ -48,15 +48,40 @@ class SpaceClient {
         .readTimeout(0, TimeUnit.SECONDS)   // no timeout for long SSE streams
         .build()
 
+    data class HealthStatus(
+        val reachable: Boolean,
+        val modelLoaded: Boolean = false,
+        val loadingInProgress: Boolean = false,
+        val loadError: String? = null,
+        val modelLabel: String? = null,
+    )
+
     /** Returns true if the Space is reachable and responding to /health. */
     suspend fun checkHealth(spaceUrl: String, token: String): Boolean =
+        fetchHealth(spaceUrl, token).reachable
+
+    /** Returns detailed health status from the Space /health endpoint. */
+    suspend fun fetchHealth(spaceUrl: String, token: String): HealthStatus =
         withContext(Dispatchers.IO) {
             val req = Request.Builder()
                 .url("${spaceUrl.trimEnd('/')}/health")
                 .header("Authorization", "Bearer $token")
                 .get()
                 .build()
-            runCatching { client.newCall(req).execute().use { it.isSuccessful } }.getOrDefault(false)
+            runCatching {
+                client.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@runCatching HealthStatus(reachable = false)
+                    val body = resp.body?.string() ?: return@runCatching HealthStatus(reachable = true)
+                    val obj = JSONObject(body)
+                    HealthStatus(
+                        reachable = true,
+                        modelLoaded = obj.optBoolean("model_loaded", false),
+                        loadingInProgress = obj.optBoolean("loading_in_progress", false),
+                        loadError = obj.optString("load_error").takeIf { it.isNotEmpty() && it != "null" },
+                        modelLabel = obj.optString("model").takeIf { it.isNotEmpty() && it != "null" },
+                    )
+                }
+            }.getOrDefault(HealthStatus(reachable = false))
         }
 
     /** Fetches the curated model catalog from the Space, with suitability ratings. */
