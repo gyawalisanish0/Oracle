@@ -5,6 +5,32 @@ Versioning is independent of the Android app.
 
 ---
 
+## [0.35] — 2026-06-29
+
+### Fixed
+- **Model loading no longer hangs on CPU-only Spaces.** `use_mlock` was `True`,
+  causing the kernel to hold a lock on NFS-backed HF Space storage and stall even
+  on sub-1 GB models. Switched to `use_mlock=False`.
+- **GPU ladder skipped on CPU-only Spaces.** The engine previously tried all eight
+  `n_gpu_layers` values (99 → 0) before reaching the CPU fallback, making a 0.5 B
+  load appear stuck for minutes. CUDA availability is now detected at startup via
+  `CUDA_VISIBLE_DEVICES` and `/dev/nvidia0`; CPU-only Spaces use `[0]` directly.
+- **Concurrent load prevention.** Added `_load_lock` (`asyncio.Lock`) so a second
+  `/v1/admin/load` call while a load is in progress waits instead of racing.
+- **Load state exposed on `/health`.** Response now includes `loading_in_progress`
+  (bool) and `load_error` (string | null) so the Android client can distinguish
+  "Space is booting a model" from a clean idle state.
+- **Full traceback logging.** All load and download errors now log the complete
+  Python traceback to Space logs for easier debugging. `verbose=True` passed to
+  `Llama()` so the llama.cpp layer also appears in logs.
+
+### Changed
+- `load_streaming()` refactored into a public wrapper (acquires `_load_lock`) and
+  `_load_streaming_inner()` (streams the events), keeping the logic clean and
+  testable.
+
+---
+
 ## [0.33] — 2026-06-28
 
 Complete rewrite. Replaces the HF Inference API proxy with a **self-contained
