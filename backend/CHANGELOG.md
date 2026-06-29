@@ -5,6 +5,22 @@ Versioning is independent of the Android app.
 
 ---
 
+## [0.37] — 2026-06-29
+
+### Fixed
+- **Empty responses on slow models (Mistral 7B, Llama 8B).** The v0.36
+  heartbeat used `asyncio.wait_for` directly on `aiter.__anext__()`. When
+  the 15 s interval expired during CPU prefill (which emits no tokens),
+  `wait_for` injected a `CancelledError` into the generator, killing the
+  `asyncio.Lock` inside `stream_chat()` and causing the stream to end with
+  zero tokens — returning an empty reply bubble on the Android side.
+  Fixed by running the source generator in its own `asyncio.Task` via
+  `ensure_future`; `wait_for` is now applied only to `queue.get()` on a
+  plain `asyncio.Queue`, so timeouts never touch the generator. The Task
+  is cancelled and awaited in a `finally` block to avoid leaks.
+
+---
+
 ## [0.36] — 2026-06-29
 
 ### Fixed

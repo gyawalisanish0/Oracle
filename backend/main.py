@@ -1,5 +1,5 @@
 """
-Domain AI — llama.cpp Space backend (v0.36).
+Domain AI — llama.cpp Space backend (v0.37).
 
 Runs a llama.cpp model inside an HF Docker Space via llama-cpp-python and exposes
 an OpenAI-compatible /v1 API.  Designed for team and community deployment:
@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Domain AI Backend", version="0.36", lifespan=lifespan)
+app = FastAPI(title="Domain AI Backend", version="0.37", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -209,17 +209,38 @@ async def _heartbeat_stream(source, interval: float = 15.0):
     bytes on the wire as activity, so this prevents them from aborting a
     slow CPU-inference stream mid-reply.  SSE comment lines (': ping\\n\\n')
     are silently ignored by OkHttp and all standard SSE parsers.
+
+    The source runs in a separate Task so that wait_for timeouts never
+    propagate a CancelledError into the generator — Mistral 7B prefill on CPU
+    can take longer than the ping interval with zero tokens emitted, and
+    cancelling __anext__() mid-prefill would kill the asyncio.Lock in
+    stream_chat() and return an empty response.
     """
-    aiter = source.__aiter__()
-    exhausted = False
-    while not exhausted:
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _consume() -> None:
         try:
-            chunk = await asyncio.wait_for(aiter.__anext__(), timeout=interval)
-            yield chunk
-        except asyncio.TimeoutError:
-            yield ": ping\n\n"
-        except StopAsyncIteration:
-            exhausted = True
+            async for chunk in source:
+                await queue.put(chunk)
+        finally:
+            await queue.put(None)  # sentinel — stream finished
+
+    task = asyncio.ensure_future(_consume())
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=interval)
+                if item is None:
+                    break
+                yield item
+            except asyncio.TimeoutError:
+                yield ": ping\n\n"
+    finally:
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 # ---------------------------------------------------------------------------
