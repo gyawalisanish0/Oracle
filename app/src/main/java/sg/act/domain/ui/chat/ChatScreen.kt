@@ -2,6 +2,7 @@ package sg.act.domain.ui.chat
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -79,6 +80,7 @@ import sg.act.domain.ui.components.KillSwitchChip
 import sg.act.domain.ui.components.MessageBubble
 import sg.act.domain.ui.components.SettingSwitchRow
 import sg.act.domain.ui.components.ThreadCountRow
+import sg.act.domain.ui.components.TypingIndicator
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,6 +98,9 @@ fun ChatScreen(
     val messages = state.conversation.messages
     val lastIndex = messages.lastIndex
     val lastLength = messages.lastOrNull()?.text?.length ?: 0
+    // True while isGenerating but no oracle bubble has appeared yet — the
+    // standalone typing placeholder is visible as a LazyColumn item at this point.
+    val showTypingPlaceholder = state.isGenerating && messages.lastOrNull()?.role == Role.USER
     var prevIndex by remember { mutableStateOf(-1) }
     LaunchedEffect(lastIndex, lastLength) {
         if (lastIndex < 0) return@LaunchedEffect
@@ -106,6 +111,13 @@ fun ChatScreen(
         } else if (listState.isNearBottom(lastIndex)) {
             // Instant (not animated) so it tracks fast token output without lag.
             listState.scrollToItem(lastIndex, Int.MAX_VALUE)
+        }
+    }
+    // Scroll to reveal the typing placeholder the moment it appears (between the
+    // user bubble and the oracle bubble being seeded).
+    LaunchedEffect(showTypingPlaceholder) {
+        if (showTypingPlaceholder && messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size)
         }
     }
 
@@ -238,6 +250,13 @@ fun ChatScreen(
                     ) {
                         items(messages, key = Message::id) { message ->
                             MessageBubble(message, streaming = message.id == streamingId)
+                        }
+                        // Shown during the gap between the user bubble appearing and
+                        // the oracle bubble being seeded (history prep + routing).
+                        if (showTypingPlaceholder) {
+                            item(key = "typing_placeholder") {
+                                PendingTypingBubble()
+                            }
                         }
                     }
                 }
@@ -699,6 +718,35 @@ private fun ModelPickerRow(
                 contentDescription = stringResource(R.string.model_in_use),
                 tint = colorResource(R.color.brand_local),
                 modifier = Modifier.size(dimensionResource(R.dimen.icon_small)),
+            )
+        }
+    }
+}
+
+/** Animated dots bubble shown while the oracle reply is being prepared. */
+@Composable
+private fun PendingTypingBubble() {
+    val corner = dimensionResource(R.dimen.bubble_corner)
+    val tail = dimensionResource(R.dimen.bubble_corner_tail)
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.Start,
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(
+                topStart = corner,
+                topEnd = corner,
+                bottomStart = tail,
+                bottomEnd = corner,
+            ),
+        ) {
+            TypingIndicator(
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(
+                    horizontal = dimensionResource(R.dimen.bubble_pad_h),
+                    vertical = dimensionResource(R.dimen.bubble_pad_v),
+                ),
             )
         }
     }
