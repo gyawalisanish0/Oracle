@@ -38,6 +38,22 @@ All notable changes to Domain AI are documented here. This project adheres to
   provider, that config is automatically imported as a named profile on first launch so
   no settings are lost.
 
+### UX
+- **Instant feedback on send.** The user's message appears immediately when Send is
+  tapped — no blank screen while history preparation runs. An animated typing indicator
+  (three pulsing dots in a reply bubble) shows during the gap before the first token
+  arrives, so the app always feels responsive.
+- **Smooth streaming for cloud providers.** Replies from OpenRouter and custom endpoints
+  now render character by character at a steady pace instead of popping in all at once
+  when a burst of tokens arrives. Any remaining buffer after the model finishes drains
+  quickly so the last sentence is never held up.
+
+### Internal
+- `Role.ORACLE` renamed to `Role.DOMAIN` to match the app's current name.
+- `smoothStream()` Flow extension in `ChatRepository` buffers incoming chars and
+  releases them at 18 ms/char during a burst, 6 ms/char on final drain, and 0 ms when
+  the stream is trickling (local / server) so no artificial delay is added there.
+
 ### Performance
 - **Adaptive prompt-prefill batch size.** N_BATCH is now chosen at startup from device
   RAM instead of a hardcoded 512 — the same tiers on both Android and the Space backend:
