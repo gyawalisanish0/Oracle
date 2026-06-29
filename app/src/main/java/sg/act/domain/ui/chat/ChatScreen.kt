@@ -72,6 +72,8 @@ import sg.act.domain.data.model.Message
 import sg.act.domain.data.model.Role
 import sg.act.domain.inference.InstalledModel
 import sg.act.domain.inference.ModelManager
+import sg.act.domain.inference.ModelProfile
+import sg.act.domain.inference.ProviderType
 import sg.act.domain.ui.components.ContextLengthRow
 import sg.act.domain.ui.components.KillSwitchChip
 import sg.act.domain.ui.components.MessageBubble
@@ -118,7 +120,7 @@ fun ChatScreen(
         ModelPickerSheet(
             state = state,
             onSelectLocal = { viewModel.selectLocalModel(it); showModelPicker = false },
-            onSelectCloud = { viewModel.selectCloudModel(); showModelPicker = false },
+            onSwitchToProfile = { viewModel.switchToProfile(it); showModelPicker = false },
             onDismiss = { showModelPicker = false },
         )
     }
@@ -127,7 +129,7 @@ fun ChatScreen(
         InferencePanelSheet(
             state = state,
             onSelectLocal = { viewModel.selectLocalModel(it) },
-            onSelectCloud = { viewModel.selectCloudModel() },
+            onSwitchToProfile = { viewModel.switchToProfile(it) },
             onSetGpu = viewModel::setGpuEnabled,
             onSetContext = viewModel::setContextTokens,
             onSetThreads = viewModel::setThreadCount,
@@ -453,9 +455,8 @@ private fun LazyListState.isNearBottom(lastIndex: Int): Boolean {
 /** The subtitle under "Domain AI": the name of the currently selected model. */
 @Composable
 private fun selectedModelLabel(state: ChatUiState): String {
-    if (state.preferCloud && state.cloudModelId != null) {
-        return stringResource(R.string.model_label_cloud, shortCloudName(state.cloudModelId))
-    }
+    val activeProfile = state.savedProfiles.firstOrNull { it.id == state.activeProfileId }
+    if (activeProfile != null) return activeProfile.name
     return when (val s = state.modelState) {
         is ModelManager.State.Ready -> s.modelName
         is ModelManager.State.Loading -> s.modelName
@@ -463,16 +464,12 @@ private fun selectedModelLabel(state: ChatUiState): String {
     }
 }
 
-/** Trim a provider model id (e.g. "deepseek/deepseek-r1:free") to a short label. */
-private fun shortCloudName(modelId: String): String =
-    modelId.substringAfterLast('/').removeSuffix(":free")
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModelPickerSheet(
     state: ChatUiState,
     onSelectLocal: (String) -> Unit,
-    onSelectCloud: () -> Unit,
+    onSwitchToProfile: (ModelProfile) -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -496,22 +493,24 @@ private fun ModelPickerSheet(
             ModelChoices(
                 state = state,
                 onSelectLocal = onSelectLocal,
-                onSelectCloud = onSelectCloud,
+                onSwitchToProfile = onSwitchToProfile,
             )
         }
     }
 }
 
 /**
- * The on-device + cloud model selection list, shared by the top-bar model picker
+ * The on-device + cloud profile selection list, shared by the top-bar model picker
  * and the chat inference panel so model switching has a single implementation.
  */
 @Composable
 private fun ModelChoices(
     state: ChatUiState,
     onSelectLocal: (String) -> Unit,
-    onSelectCloud: () -> Unit,
+    onSwitchToProfile: (ModelProfile) -> Unit,
 ) {
+    val isLocal = state.activeProfileId == null
+
     // On-device models.
     Text(
         stringResource(R.string.model_picker_local),
@@ -530,40 +529,62 @@ private fun ModelChoices(
             ModelPickerRow(
                 title = model.displayName,
                 subtitle = stringResource(
-                    if (model.source == ModelSource.IMPORT) {
-                        R.string.model_source_import
-                    } else {
-                        R.string.model_source_download
-                    },
+                    if (model.source == ModelSource.IMPORT) R.string.model_source_import
+                    else R.string.model_source_download,
                 ),
                 icon = Icons.Filled.Smartphone,
-                selected = !state.preferCloud && model.isActive,
+                selected = isLocal && model.isActive,
                 onClick = { onSelectLocal(model.fileName) },
             )
         }
     }
 
-    HorizontalDivider(modifier = Modifier.padding(vertical = dimensionResource(R.dimen.space_s)))
-
-    // Cloud model.
-    Text(
-        stringResource(R.string.model_picker_cloud),
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    if (state.cloudModelId == null) {
+    // My server profiles (Space).
+    val serverProfiles = state.savedProfiles.filter { it.type == ProviderType.SPACE }
+    if (serverProfiles.isNotEmpty()) {
+        HorizontalDivider(modifier = Modifier.padding(vertical = dimensionResource(R.dimen.space_s)))
         Text(
-            stringResource(R.string.model_picker_no_cloud),
-            style = MaterialTheme.typography.bodySmall,
+            stringResource(R.string.model_picker_my_server),
+            style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    } else {
-        ModelPickerRow(
-            title = shortCloudName(state.cloudModelId),
-            subtitle = state.cloudModelId,
-            icon = Icons.Filled.Cloud,
-            selected = state.preferCloud,
-            onClick = onSelectCloud,
+        for (profile in serverProfiles) {
+            ModelPickerRow(
+                title = profile.name,
+                subtitle = profile.model,
+                icon = Icons.Filled.Cloud,
+                selected = profile.id == state.activeProfileId,
+                onClick = { onSwitchToProfile(profile) },
+            )
+        }
+    }
+
+    // Cloud API profiles (OpenRouter + Custom).
+    val apiProfiles = state.savedProfiles.filter { it.type != ProviderType.SPACE }
+    if (apiProfiles.isNotEmpty()) {
+        HorizontalDivider(modifier = Modifier.padding(vertical = dimensionResource(R.dimen.space_s)))
+        Text(
+            stringResource(R.string.model_picker_cloud_api),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        for (profile in apiProfiles) {
+            ModelPickerRow(
+                title = profile.name,
+                subtitle = profile.model,
+                icon = Icons.Filled.Cloud,
+                selected = profile.id == state.activeProfileId,
+                onClick = { onSwitchToProfile(profile) },
+            )
+        }
+    }
+
+    if (serverProfiles.isEmpty() && apiProfiles.isEmpty()) {
+        HorizontalDivider(modifier = Modifier.padding(vertical = dimensionResource(R.dimen.space_s)))
+        Text(
+            stringResource(R.string.model_picker_no_profiles),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -577,7 +598,7 @@ private fun ModelChoices(
 private fun InferencePanelSheet(
     state: ChatUiState,
     onSelectLocal: (String) -> Unit,
-    onSelectCloud: () -> Unit,
+    onSwitchToProfile: (ModelProfile) -> Unit,
     onSetGpu: (Boolean) -> Unit,
     onSetContext: (Int) -> Unit,
     onSetThreads: (Int) -> Unit,
@@ -610,7 +631,7 @@ private fun InferencePanelSheet(
             ModelChoices(
                 state = state,
                 onSelectLocal = onSelectLocal,
-                onSelectCloud = onSelectCloud,
+                onSwitchToProfile = onSwitchToProfile,
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = dimensionResource(R.dimen.space_s)))
