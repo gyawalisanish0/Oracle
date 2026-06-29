@@ -3,9 +3,21 @@
 All notable changes to Domain AI are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [1.09] — 2026-06-29
+## [1.08] — 2026-06-28
 
 ### Added
+- **Self-hosted Space backend (backend v0.33).** A FastAPI server (`backend/`) runs a
+  llama.cpp model directly inside a Hugging Face Docker Space via llama-cpp-python,
+  exposing an OpenAI-compatible `/v1` API. Models are stored on HF persistent storage
+  (`/data/models`) — downloaded once, reused across restarts. Supports team mode (one
+  Space, one `SPACE_TOKEN`, multiple Android clients) and community forking. The backend
+  exposes a curated model catalog rated against the Space's available RAM.
+- **Space model picker in Settings.** A new "Space backend" section replaces the
+  previous HF Serverless section. Enter your Space URL and `SPACE_TOKEN`, tap "Connect"
+  to verify the link, then browse the Space's curated catalog with hardware suitability
+  badges (Recommended / Heavy / Not enough RAM). Tap "Load" on any model to trigger an
+  on-Space download with real-time percentage progress streamed live to the app, followed
+  by automatic provider activation once the model is ready.
 - **Multi-model profile system.** You can now save any number of named inference
   configurations — Space backends, OpenRouter models, and custom endpoints — and
   switch between them (and local on-device models) with a single tap in the chat
@@ -26,33 +38,6 @@ All notable changes to Domain AI are documented here. This project adheres to
   provider, that config is automatically imported as a named profile on first launch so
   no settings are lost.
 
-### Internal
-- New `ModelProfile` data class and `ProviderType` enum (`SPACE`, `OPEN_ROUTER`,
-  `CUSTOM`) as the canonical representation of a saved inference config.
-- New `ModelProfileStore` backed by `EncryptedSharedPreferences` — stores the full
-  profile list (JSON), the active profile ID, and separate credential slots for Space
-  and OpenRouter credentials. Exposes `StateFlow<List<ModelProfile>>` and
-  `StateFlow<String?>` for reactive UI updates.
-- `validateAndSave()` in `SettingsViewModel` now creates a `ModelProfile` on
-  successful round-trip validation and sets it active; the profile id replaces the
-  bare `preferCloud` boolean as the routing signal.
-
-## [1.08] — 2026-06-28
-
-### Added
-- **Self-hosted Space backend (backend v0.33).** A FastAPI server (`backend/`) runs a
-  llama.cpp model directly inside a Hugging Face Docker Space via llama-cpp-python,
-  exposing an OpenAI-compatible `/v1` API. Models are stored on HF persistent storage
-  (`/data/models`) — downloaded once, reused across restarts. Supports team mode (one
-  Space, one `SPACE_TOKEN`, multiple Android clients) and community forking. The backend
-  exposes a curated model catalog rated against the Space's available RAM.
-- **Space model picker in Settings.** A new "Space backend" section replaces the
-  previous HF Serverless section. Enter your Space URL and `SPACE_TOKEN`, tap "Connect"
-  to verify the link, then browse the Space's curated catalog with hardware suitability
-  badges (Recommended / Heavy / Not enough RAM). Tap "Load" on any model to trigger an
-  on-Space download with real-time percentage progress streamed live to the app, followed
-  by automatic provider activation once the model is ready.
-
 ### Performance
 - **Adaptive prompt-prefill batch size.** N_BATCH is now chosen at startup from device
   RAM instead of a hardcoded 512 — the same tiers on both Android and the Space backend:
@@ -68,6 +53,15 @@ All notable changes to Domain AI are documented here. This project adheres to
   compile flags enable faster CPU prefill. `asyncio.Lock` serializes concurrent clients.
   Cache-first downloads check for an existing file before fetching; writes are atomic
   (`.tmp` rename) to avoid corrupt models on interrupted downloads.
+- New `ModelProfile` data class and `ProviderType` enum (`SPACE`, `OPEN_ROUTER`,
+  `CUSTOM`) as the canonical representation of a saved inference config.
+- New `ModelProfileStore` backed by `EncryptedSharedPreferences` — stores the full
+  profile list (JSON), the active profile ID, and separate credential slots for Space
+  and OpenRouter credentials. Exposes `StateFlow<List<ModelProfile>>` and
+  `StateFlow<String?>` for reactive UI updates.
+- `validateAndSave()` in `SettingsViewModel` now creates a `ModelProfile` on
+  successful round-trip validation and sets it active; the profile id replaces the
+  bare `preferCloud` boolean as the routing signal.
 
 ## [1.05] — 2026-06-25
 
