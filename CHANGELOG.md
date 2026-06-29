@@ -3,6 +3,40 @@
 All notable changes to Domain AI are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.09] — 2026-06-29
+
+### Added
+- **Multi-model profile system.** You can now save any number of named inference
+  configurations — Space backends, OpenRouter models, and custom endpoints — and
+  switch between them (and local on-device models) with a single tap in the chat
+  inference panel. No credential re-entry after the first setup: Space URL/token and
+  OpenRouter key are stored once and survive profile switches.
+- **One-tap model picker redesigned.** The chat model picker now groups options into
+  three sections: *On-device* (installed GGUF models), *My server* (Space profiles),
+  and *Cloud API* (OpenRouter and custom endpoint profiles). Each profile is shown by
+  its readable name; the active one is checkmarked.
+- **Saved profiles list in Settings.** A new "Saved profiles" section lists every
+  cloud configuration with the ability to switch, rename, or delete entries inline.
+  The active profile is highlighted; deactivating it routes the next chat on-device.
+- **Credential persistence across profiles.** Space URL + token and OpenRouter API key
+  are stored in separate encrypted slots, independent of which profile is active. The
+  Space section shows the connected host with a one-tap reconnect; the OpenRouter
+  section shows "key saved" status with a remove option.
+- **First-launch migration.** If the app was previously configured with a single cloud
+  provider, that config is automatically imported as a named profile on first launch so
+  no settings are lost.
+
+### Internal
+- New `ModelProfile` data class and `ProviderType` enum (`SPACE`, `OPEN_ROUTER`,
+  `CUSTOM`) as the canonical representation of a saved inference config.
+- New `ModelProfileStore` backed by `EncryptedSharedPreferences` — stores the full
+  profile list (JSON), the active profile ID, and separate credential slots for Space
+  and OpenRouter credentials. Exposes `StateFlow<List<ModelProfile>>` and
+  `StateFlow<String?>` for reactive UI updates.
+- `validateAndSave()` in `SettingsViewModel` now creates a `ModelProfile` on
+  successful round-trip validation and sets it active; the profile id replaces the
+  bare `preferCloud` boolean as the routing signal.
+
 ## [1.08] — 2026-06-28
 
 ### Added
