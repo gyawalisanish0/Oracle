@@ -6,7 +6,7 @@ colorTo: indigo
 sdk: docker
 pinned: false
 license: apache-2.0
-short_description: Self-hosted llama.cpp inference for the Domain AI Android app
+short_description: llama.cpp inference for Domain AI Android app
 ---
 
 # Domain AI Backend
